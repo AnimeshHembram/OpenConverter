@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenConvert — free, private file converter</title>
+    <meta
+      name="description"
+      content="Convert PNG, JPEG, WebP and BMP images in your browser. Free, open source, no uploads, no account."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Cpath d='M9 12h11l-3-3m6 11H12l3 3' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to converter</a>
+    <header class="site-header">
+      <div class="wrap">
+        <h1 class="brand">OpenConvert</h1>
+        <p class="tagline">Convert images in your browser. Files never leave your device.</p>
+      </div>
+    </header>
+
+    <main id="main" class="wrap">
+      <noscript><p class="notice notice-error">OpenConvert needs JavaScript to convert files on your device.</p></noscript>
+      <div id="app" aria-busy="true"></div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p>
+          Free and open source under the MIT License. No uploads, no tracking, no account.
+          <a id="source-link" href="https://github.com/AnimeshHembram/OpenConvert" rel="noopener">Source code</a>
+        </p>
+      </div>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
