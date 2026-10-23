@@ -1,47 +1,102 @@
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 
-// GitHub Pages serves project sites from /<repo-name>/. The deploy workflow
-// sets BASE_PATH; locally the site is served from the root.
+/**
+ * GitHub Pages serves project sites from /<repository-name>/. CI and
+ * `npm run build:pages` set BASE_PATH; a plain `npm run build` targets "/".
+ */
 const base = process.env.BASE_PATH ?? '/';
+if (!base.startsWith('/') || !base.endsWith('/')) {
+  throw new Error(`BASE_PATH must start and end with "/", got "${base}"`);
+}
+
+/** Repository shown in the footer. GitHub Actions sets GITHUB_REPOSITORY. */
+const repository = process.env.GITHUB_REPOSITORY ?? 'AnimeshHembram/OpenConverter';
+if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error(`Unexpected GITHUB_REPOSITORY: ${repository}`);
 
 /**
  * Content-Security-Policy for the production build. `connect-src 'self'`
- * makes the browser itself block requests to any other site, which backs up
- * the "files never leave your device" promise (the static host accepts no
- * uploads). GitHub Pages cannot set headers, so it is delivered as a <meta>
- * tag. Not applied in dev, where Vite needs a websocket for hot reload.
+ * makes the browser block requests to any other site, which backs up the
+ * "files never leave your device" promise (the static host accepts no
+ * uploads). GitHub Pages cannot set response headers, so it is delivered as
+ * a <meta> tag; `frame-ancestors` and `report-uri` can't be set that way.
+ * Not applied in dev, where Vite needs inline scripts and a websocket.
  */
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval'",
+  "script-src 'self' 'wasm-unsafe-eval'", // WebAssembly WebP encoder
   "style-src 'self'",
-  "img-src 'self' blob: data:",
-  "connect-src 'self'", // same-origin only: needed to load the .wasm encoder
-  "worker-src 'self' blob:",
+  "img-src 'self' blob: data:", // previews are blob: URLs; the favicon is a data: URL
+  "connect-src 'self'", // same-origin only: loads the .wasm encoder
+  "worker-src 'none'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
 ].join('; ');
 
-function cspPlugin(): Plugin {
+function htmlPlugin(): Plugin {
   return {
-    name: 'openconvert-csp',
+    name: 'openconvert-html',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html, ctx) {
+        let out = html.replaceAll('%OPENCONVERT_REPO_URL%', `https://github.com/${repository}`);
+        if (!ctx.server) {
+          out = out.replace(
+            '<meta charset="UTF-8" />',
+            `<meta charset="UTF-8" />\n    <meta http-equiv="Content-Security-Policy" content="${CSP}" />`,
+          );
+        }
+        return out;
+      },
+    },
+  };
+}
+
+/**
+ * The site redistributes third-party code (the WebP encoder: libwebp under
+ * BSD-3-Clause, and two Apache-2.0 packages). Their licences require their
+ * notices to accompany the distribution, so the build emits
+ * THIRD_PARTY_NOTICES.txt from the installed packages' own licence files.
+ */
+function thirdPartyNoticesPlugin(): Plugin {
+  const require = createRequire(import.meta.url);
+  const pkgDir = (name: string) => dirname(require.resolve(`${name}/package.json`));
+  const sections = [
+    { title: '@jsquash/webp (Apache-2.0) — https://github.com/jamsinclair/jSquash', file: join(pkgDir('@jsquash/webp'), 'LICENSE') },
+    { title: 'libwebp, compiled to WebAssembly inside @jsquash/webp (BSD-3-Clause) — https://chromium.googlesource.com/webm/libwebp', file: join(pkgDir('@jsquash/webp'), 'codec', 'LICENSE.codec.md') },
+    { title: 'wasm-feature-detect (Apache-2.0) — https://github.com/GoogleChromeLabs/wasm-feature-detect', file: join(pkgDir('wasm-feature-detect'), 'LICENSE') },
+  ];
+  return {
+    name: 'openconvert-third-party-notices',
     apply: 'build',
-    transformIndexHtml(html) {
-      return html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${CSP}" />`);
+    generateBundle() {
+      const body = sections
+        .map((s) => `${'='.repeat(78)}\n${s.title}\n${'='.repeat(78)}\n\n${readFileSync(s.file, 'utf8').trim()}\n`)
+        .join('\n');
+      this.emitFile({
+        type: 'asset',
+        fileName: 'THIRD_PARTY_NOTICES.txt',
+        source: `OpenConvert includes the following third-party software.\n\n${body}`,
+      });
     },
   };
 }
 
 export default defineConfig({
   base,
-  plugins: [cspPlugin()],
+  plugins: [htmlPlugin(), thirdPartyNoticesPlugin()],
   // The WebP WASM encoder must not be pre-bundled, or its .wasm file is lost.
   optimizeDeps: { exclude: ['@jsquash/webp'] },
   build: {
     target: 'es2022',
     sourcemap: true,
+    // OUT_DIR lets the subpath build sit beside the root build for testing.
+    outDir: process.env.OUT_DIR ?? 'dist',
+    emptyOutDir: true,
   },
   test: {
     include: ['tests/unit/**/*.test.ts'],

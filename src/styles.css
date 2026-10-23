@@ -95,7 +95,11 @@ main.wrap { padding-bottom: 48px; }
   transition: border-color 120ms, background 120ms;
 }
 .dropzone:hover, .dropzone.is-dragover { border-color: var(--accent); background: var(--accent-soft); }
-#file-input:focus-visible + .dropzone, .dropzone:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+/* The visually hidden file input sits just before its label, so the label
+   shows the input's keyboard focus. :focus fallback for older Safari. */
+#file-input:focus + .dropzone { outline: 3px solid var(--focus); outline-offset: 2px; }
+#file-input:focus:not(:focus-visible) + .dropzone { outline: none; }
+#file-input:focus-visible + .dropzone { outline: 3px solid var(--focus); outline-offset: 2px; border-color: var(--accent); }
 .dropzone-title { font-size: 1.125rem; font-weight: 600; }
 .dropzone-hint { color: var(--text-muted); font-size: 0.875rem; }
 

@@ -3,6 +3,7 @@ import { Controller } from './app/controller';
 import { registerConverter } from './core/registry';
 import { detectImageCapabilities } from './modules/image/capabilities';
 import { createImageConverter } from './modules/image/converter';
+import { pixelPolicy } from './core/limits';
 import { mountApp } from './ui/view';
 
 async function start(): Promise<void> {
@@ -24,7 +25,7 @@ async function start(): Promise<void> {
   mountApp(root, controller, caps);
   root.removeAttribute('aria-busy');
   // Exposed for automated tests and debugging in the console.
-  (window as unknown as { openconvert: unknown }).openconvert = { controller, caps };
+  (window as unknown as { openconvert: unknown }).openconvert = { controller, caps, pixelPolicy: pixelPolicy() };
 }
 
 start().catch((e) => {

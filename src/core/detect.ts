@@ -126,3 +126,78 @@ export function readDimensions(formatId: string, b: Uint8Array): Dimensions | nu
     return null;
   }
 }
+
+/**
+ * Whether the image is animated, from its header bytes.
+ * - APNG: an `acTL` chunk declaring more than one frame appears before the
+ *   first `IDAT` (required by the APNG spec).
+ * - WebP: the animation flag in the `VP8X` extended header.
+ * Returns null when the answer isn't in the given bytes.
+ */
+export function detectAnimation(formatId: string, b: Uint8Array): boolean | null {
+  try {
+    if (formatId === 'png') {
+      let o = 8;
+      while (o + 8 <= b.length) {
+        const len = u32be(b, o);
+        const type = ascii(b, o + 4, 4);
+        if (type === 'acTL') return o + 12 <= b.length ? u32be(b, o + 8) > 1 : null;
+        if (type === 'IDAT' || type === 'IEND') return false;
+        o += 12 + len;
+      }
+      return null;
+    }
+    if (formatId === 'webp') {
+      if (b.length < 21) return null;
+      if (ascii(b, 12, 4) !== 'VP8X') return false; // simple formats can't animate
+      return (b[20]! & 0x02) !== 0;
+    }
+    return false; // JPEG and BMP have no animation
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * EXIF orientation (1–8) of a JPEG, or null if absent. Values 5–8 mean the
+ * stored image is rotated by 90° or 270°, so width and height are swapped
+ * when displayed.
+ */
+export function readJpegOrientation(b: Uint8Array): number | null {
+  try {
+    let o = 2;
+    while (o + 4 <= b.length) {
+      if (b[o] !== 0xff) return null;
+      const marker = b[o + 1]!;
+      if (marker === 0xda || marker === 0xd9) return null; // image data starts: no EXIF
+      const len = u16be(b, o + 2);
+      if (marker === 0xe1 && ascii(b, o + 4, 6) === 'Exif\0\0') {
+        const t = o + 10; // TIFF header
+        const le = ascii(b, t, 2) === 'II';
+        const r16 = (p: number) => (le ? u16le(b, p) : u16be(b, p));
+        const r32 = (p: number) => (le ? i32le(b, p) >>> 0 : u32be(b, p));
+        if (r16(t + 2) !== 42) return null;
+        const ifd = t + r32(t + 4);
+        const count = r16(ifd);
+        for (let i = 0; i < count; i++) {
+          const e = ifd + 2 + i * 12;
+          if (e + 12 > b.length) return null;
+          if (r16(e) === 0x0112) {
+            const v = r16(e + 8);
+            return v >= 1 && v <= 8 ? v : null;
+          }
+        }
+        return null;
+      }
+      o += 2 + len;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Dimensions as displayed, after applying EXIF orientation. */
+export function orientedDimensions(d: Dimensions, orientation: number | null): Dimensions {
+  return orientation !== null && orientation >= 5 ? { width: d.height, height: d.width } : d;
+}

@@ -42,14 +42,20 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     accept: acceptAttribute('image'),
     class: 'visually-hidden',
     id: 'file-input',
+    'aria-labelledby': 'dropzone-title',
+    'aria-describedby': 'dropzone-hint',
     'data-testid': 'file-input',
   });
+  // The real <input> is visually hidden and placed *before* its label so the
+  // label can show the input's keyboard focus (`#file-input:focus-visible +
+  // .dropzone` in styles.css). Clicking the label opens the file picker.
   const dropzone = h(
     'label',
     { class: 'dropzone', for: 'file-input', 'data-testid': 'dropzone' },
-    h('span', { class: 'dropzone-title', text: 'Choose images or drop them here' }),
+    h('span', { class: 'dropzone-title', id: 'dropzone-title', text: 'Choose images or drop them here' }),
     h('span', {
       class: 'dropzone-hint',
+      id: 'dropzone-hint',
       text: `PNG, JPEG, WebP or BMP · up to ${formatBytes(MAX_FILE_BYTES)} each · you can also paste`,
     }),
   );
@@ -99,7 +105,9 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   targetSelect.addEventListener('change', () => c.setSettings({ target: targetSelect.value }));
 
   const quality = h('input', { type: 'range', id: 'quality', min: 1, max: 100, step: 1, 'data-testid': 'quality' });
-  const qualityOut = h('output', { for: 'quality', class: 'quality-value' });
+  // A plain span, not <output>: <output> is an implicit live region and would
+  // compete with the notice. The slider already announces its own value.
+  const qualityOut = h('span', { class: 'quality-value' });
   quality.addEventListener('input', () => c.setSettings({ quality: Number(quality.value) / 100 }));
   const qualityField = h('div', { class: 'field' }, h('label', { for: 'quality', text: 'Quality ' }, qualityOut), quality);
 
@@ -129,7 +137,10 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   convertBtn.addEventListener('click', () => void c.convertAll());
   cancelBtn.addEventListener('click', () => c.cancel());
   downloadAllBtn.addEventListener('click', () => void c.downloadAll());
-  clearBtn.addEventListener('click', () => c.clear());
+  clearBtn.addEventListener('click', () => {
+    c.clear();
+    input.focus(); // the list is gone; return focus to where files are added
+  });
   const overall = h('progress', { class: 'overall', max: 1, value: 0, 'aria-label': 'Overall progress', 'data-testid': 'overall-progress' });
   const toolbar = h('div', { class: 'toolbar' }, convertBtn, cancelBtn, downloadAllBtn, clearBtn);
 
@@ -137,7 +148,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   const list = h('ul', { class: 'file-list', 'aria-label': 'Files', 'data-testid': 'file-list' });
   const workspace = h('section', { class: 'workspace' }, toolbar, overall, notice, list);
 
-  root.append(dropzone, input, settings, workspace);
+  root.append(input, dropzone, settings, workspace);
 
   // ---- Rendering -------------------------------------------------------
   const cards = new Map<string, { el: HTMLLIElement; item?: FileItem; key?: string; refs: CardRefs }>();
@@ -187,7 +198,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
       seen.add(item.id);
       let card = cards.get(item.id);
       if (!card) {
-        const refs = createCard(item.id, c);
+        const refs = createCard(item.id, c, () => input);
         card = { el: refs.root, refs };
         cards.set(item.id, card);
       }
@@ -226,19 +237,26 @@ interface CardRefs {
   remove: HTMLButtonElement;
 }
 
-function createCard(id: string, c: Controller): CardRefs {
+function createCard(id: string, c: Controller, fallbackFocus: () => HTMLElement): CardRefs {
   const beforeImg = h('img', { alt: '', class: 'thumb', decoding: 'async', loading: 'lazy' });
   const afterImg = h('img', { alt: '', class: 'thumb', decoding: 'async' });
   const afterFig = h('figure', { class: 'preview' }, afterImg, h('figcaption', { text: 'After' }));
   const name = h('p', { class: 'file-name' });
   const meta = h('p', { class: 'file-meta' });
   const status = h('p', { class: 'file-status', 'data-testid': 'status' });
-  const progress = h('progress', { max: 1, value: 0, class: 'file-progress' });
+  const progress = h('progress', { max: 1, value: 0, class: 'file-progress', 'data-testid': 'file-progress' });
   const messages = h('ul', { class: 'file-messages' });
   const download = h('button', { type: 'button', class: 'btn btn-primary btn-small', 'data-testid': 'download' });
   const remove = h('button', { type: 'button', class: 'btn btn-quiet btn-small', text: 'Remove', 'data-testid': 'remove' });
   download.addEventListener('click', () => c.download(id));
-  remove.addEventListener('click', () => c.remove(id));
+  remove.addEventListener('click', () => {
+    // Keep keyboard focus in a sensible place when this card disappears:
+    // the next card's Remove button, else the previous one, else the input.
+    const card = remove.closest('li');
+    const neighbour = (card?.nextElementSibling ?? card?.previousElementSibling)?.querySelector<HTMLElement>('[data-testid=remove]');
+    c.remove(id);
+    (neighbour ?? fallbackFocus()).focus();
+  });
   const previews = h('div', { class: 'previews' }, h('figure', { class: 'preview' }, beforeImg, h('figcaption', { text: 'Before' })), afterFig);
   const root = h(
     'li',
@@ -283,12 +301,18 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
   r.status.textContent = statusText;
   r.progress.hidden = item.status !== 'converting';
   r.progress.value = item.progress;
+  r.progress.setAttribute('aria-label', `Converting ${item.name}`);
 
   const msgs: [string, string][] = [];
   if (item.error) msgs.push(['error', item.error]);
   for (const w of item.inputWarnings) msgs.push(['warning', w]);
   for (const w of res?.warnings ?? []) msgs.push(['warning', w]);
-  r.messages.replaceChildren(...msgs.map(([kind, text]) => h('li', { class: `msg msg-${kind}`, text })));
+  // A text prefix, so the meaning doesn't depend on colour alone.
+  r.messages.replaceChildren(
+    ...msgs.map(([kind, text]) =>
+      h('li', { class: `msg msg-${kind}` }, h('strong', { text: kind === 'error' ? 'Error: ' : 'Note: ' }), text),
+    ),
+  );
   r.messages.hidden = msgs.length === 0;
 
   r.download.hidden = !res;

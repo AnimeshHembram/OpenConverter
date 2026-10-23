@@ -3,42 +3,111 @@
 ## Layers
 
 ```
- UI (src/ui)            renders state, forwards user actions
-        │ subscribe / call
+ UI (src/ui)            renders state, forwards user actions; placeholder look
+        │ subscribe / call Controller methods
  Controller (src/app)   state, queue, cancellation, downloads, object-URL lifetime
         │ registry lookups
- Core (src/core)        formats, detection, validation, limits, registry, zip
-        │ Converter interface
+ Core (src/core)        formats, detection, validation, limits, errors, registry, zip
+        │ Converter interface (src/core/types.ts)
  Modules (src/modules)  image/ (Phase 1) · document/ (Phase 2) · …
 ```
 
-- The **UI** never imports a module. The visual design can be replaced completely while keeping `Controller`'s public methods and `AppState`.
-- The **controller** knows nothing about pixels or pages. It asks the registry for a `Converter` that can turn format A into format B.
-- **Modules** register `Converter`s (`src/core/types.ts`). A converter declares which outputs it can produce for an input *in this browser* (`outputsFor`) and performs one conversion with progress and an `AbortSignal`.
+**The contract the UI depends on:**
+- `Controller`'s public methods: `addFiles`, `remove`, `clear`, `cancel`, `convertAll`, `download`, `downloadAll`, `setSettings`, `downloadableItems`, `subscribe`.
+- The `AppState` and `FileItem` shapes.
 
-## Conversion pipeline (images)
+The UI never imports a conversion module, so a redesign can replace `src/ui/view.ts` and `src/styles.css` completely. Keep the `data-testid` attributes so the browser tests stay valid.
 
-1. `inspectFile`: size limits, magic-byte sniffing, a dimension check read from the header (rejects decompression bombs before decoding), and a warning when the extension doesn't match the content.
-2. `decodeImage`: our BMP decoder, or `createImageBitmap` (EXIF orientation applied), falling back to `<img>.decode()`.
-3. Transparency check. For JPEG output, transparent areas are filled with the chosen colour.
-4. Encode: native `canvas.toBlob`, the lazy-loaded WASM WebP encoder, or the JS BMP encoder.
-5. `verifyOutput`: sniff the output's bytes. If they aren't the requested format, fail instead of mislabelling.
-6. Release the bitmap and shrink the canvas to 0×0 so memory is freed promptly.
+**Modules** register `Converter`s. A converter declares which outputs it can produce for an input *in this browser* (`outputsFor`) and performs one conversion, reporting progress and honouring an `AbortSignal`.
 
-Files are processed one at a time to bound peak memory. Each file has its own `AbortController`, so removing a file cancels only that file and **Cancel** stops the batch.
+## Image conversion pipeline
 
-## Adding document conversion (Phase 2)
+1. **`inspectFile`** runs when a file is added. It:
+   - checks the file size;
+   - sniffs the magic bytes;
+   - reads dimensions from the header and applies EXIF orientation;
+   - detects animation (an APNG `acTL` chunk, or the WebP `VP8X` animation flag);
+   - checks the device pixel limit **before decoding**, which rejects decompression bombs early;
+   - warns about a misleading extension or an animated input.
+2. **`decodeImage`** uses the JS BMP decoder for BMP. Otherwise it uses `createImageBitmap` with EXIF orientation applied, falling back to `<img>.decode()`.
+3. **Transparency**, where correctness matters:
+   - Formats without alpha (JPEG) **always** get the background painted behind the image with `destination-over`. This leaves opaque pixels unchanged, so correctness never depends on detecting transparency first.
+   - Whether the image had transparency is computed **at full resolution**. For JPEG this is a strip-wise scan, only for inputs that can carry alpha, and it drives the warning. For BMP and the WASM WebP encoder it comes from the exact pixel array the encoder uses, and it decides 24-bit or 32-bit BMP.
+   - An earlier version used a 256-pixel downscaled probe, which missed thin features. Downscaled probes must not be used for correctness decisions.
+4. **Encode** with one of three encoders:
+   - native `canvas.toBlob` for PNG and JPEG, and WebP where supported;
+   - the lazy-loaded WASM WebP encoder;
+   - the JS BMP encoder.
 
-1. Add formats to `src/core/formats.ts` with `category: 'document'`, and extend `sniff` (PDF is already recognised).
-2. Create `src/modules/document/` exporting `createDocumentConverter(caps)`.
-3. **Lazy-load heavy libraries** inside `convert()` with `await import(...)`, as `encodeWebpWasm` does. The image converter's first load stays at about 12 KB gzipped.
-4. Run long or CPU-heavy work in a Web Worker (CSP already allows `worker-src 'self' blob:`). Pass `ArrayBuffer`s as transferables.
-5. Register it in `src/main.ts`. The controller and the queue need no changes. The UI will need a category or target picker per file type.
+   WASM *load* failures and *encode* failures give different, actionable messages, and a failed load can be retried.
+5. **`verifyOutput`** checks every encoder path: the output is non-empty, the sniffed signature matches the target, the extension matches, and the MIME type is canonical. Otherwise it fails rather than offering a mislabelled file.
+6. **Cleanup** runs in a `finally` on success, failure and cancellation: `ImageBitmap.close()`, revoking `<img>` decode URLs, and shrinking canvases to 0×0.
 
-Candidate open-source libraries, to be approved before adding: `pdf-lib` (MIT) to create and edit PDFs, `pdfjs-dist` (Apache-2.0) to render PDF pages to images, and `mammoth` (BSD-2) for DOCX → HTML. Any library that needs a server or network access is ruled out by design and by the CSP.
+## Resource lifecycle
 
-## Testing strategy
+| Resource | Created | Released |
+|---|---|---|
+| Preview object URL | after inspection | `remove`, `clear` |
+| Result object URL | after conversion | re-conversion (old URL revoked), `remove`, `clear` |
+| Download URL | per download | 30 s later |
+| `ImageBitmap`, decode `<img>` URL | per conversion | `finally` in the converter |
+| Canvases | per conversion | `finally` (0×0) |
+| WASM encoder | first WebP-via-WASM conversion | lives for the page (retried if loading failed) |
 
-- **Unit (Vitest, Node):** pure logic, including format sniffing, header dimension parsing, BMP encode/decode round trips (24/32-bit, padding, top-down, palettes), file names, ZIP structure and CRC, and validation messages.
-- **End-to-end (Playwright, Chromium desktop and mobile emulation):** real conversions through the UI. The tests check downloaded bytes, file names, dimensions, pixel values (alpha kept or filled), the WASM fallback, ZIP contents, errors for bad files, object-URL cleanup, and that no request goes to another origin.
-- **Not yet automated:** Firefox and WebKit. Add them to `playwright.config.ts` projects once their browsers are installed in CI (`npx playwright install --with-deps firefox webkit`). WebKit is the important one, because it exercises the native-WebP-missing path for real.
+- Object URLs are **not** revoked on `pagehide`. The page may be restored from the back/forward cache, and revoked URLs would leave broken previews. The browser frees them when the document is discarded.
+- **Concurrency:** files convert one at a time to bound peak memory. Each file has its own `AbortController`. `remove` aborts only that file, and `cancel` stops the batch.
+- **Stale results:** a result that arrives for a removed file, or after `clear`, is dropped and no URL is created.
+- **Abort points:** cancellation is checked between stages (decode → draw → encode → verify). A single native encode can't be interrupted midway; its result is discarded.
+
+## Pixel limits (`src/core/limits.ts`)
+
+`detectDeviceProfile` combines independent signals; any one of them marks the device as constrained:
+- the user agent;
+- `navigator.userAgentData.mobile`;
+- a coarse pointer combined with a short screen side under 820 px;
+- `navigator.deviceMemory`;
+- iOS detection, including iPadOS in desktop mode.
+
+`selectPixelPolicy` is a pure function, so it's unit-tested. The most conservative matching rule wins: iOS 16.7 MP, then ≤ 2 GB 12 MP, then ≤ 4 GB 24 MP, then mobile 24 MP, otherwise desktop 50 MP. The limits reduce the risk of the tab running out of memory but can't eliminate it.
+
+## Security and privacy
+
+- The production CSP is injected as a `<meta>` tag (`vite.config.ts`): `connect-src 'self'`, `worker-src 'none'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`, and `script-src 'self' 'wasm-unsafe-eval'` for the WebP encoder.
+- There are no inline scripts or styles, no third-party origins and no analytics.
+- Third-party licence texts are emitted into `THIRD_PARTY_NOTICES.txt` at build time from the installed packages.
+
+## Phase 2 boundaries
+
+Document conversion isn't implemented. When it is:
+
+1. Add formats to `src/core/formats.ts` with `category: 'document'`. Extend `sniff` (PDF is already recognised and currently rejected) and `inspectFile`.
+2. Create `src/modules/document/`, exporting `createDocumentConverter(caps)` and registering it in `src/main.ts`. The controller, queue, ZIP and download code need no changes.
+3. **Lazy-load** heavy libraries inside `convert()` with `await import(...)`, as `loadWebpEncoder` does, so the image converter stays small to load.
+4. Run CPU-heavy work in a Web Worker. This needs `worker-src 'self'` in the CSP, which is currently `'none'`. Pass `ArrayBuffer`s as transferables.
+5. Route every output through a verifier like `verifyOutput`. A document converter must never offer a file under a misleading extension either.
+6. Every new dependency needs owner approval, a licence check, and an entry in the third-party-notices plugin. Anything that needs a server or a third-party network request is out of scope by design and blocked by the CSP.
+7. The UI will need per-category output choices; the current settings panel assumes images.
+
+Candidate libraries, none installed yet:
+- `pdf-lib` (MIT) to create and edit PDFs;
+- `pdfjs-dist` (Apache-2.0) to render PDF pages to images;
+- `mammoth` (BSD-2) for DOCX to HTML.
+
+## Testing
+
+| Suite | Config | Runs against |
+|---|---|---|
+| Unit | `vite.config.ts` (`test`) | Node, no browser |
+| Browser, root | `playwright.config.ts` | `dist/` via `vite preview` at `/` |
+| Browser, GitHub Pages | `playwright.pages.config.ts` | `dist-pages/` via `scripts/serve-pages.mjs` at `BASE_PATH` |
+| Fixture generator | `tests/fixtures/playwright.fixtures.config.ts` | Chromium (WebKit can't encode WebP) |
+
+Browser projects (`tests/playwright-projects.ts`): `chromium`, `mobile-chromium` (Pixel 7), `firefox`, `webkit`, and `mobile-webkit` (iPhone 13). Keyboard tests skip the mobile projects.
+
+Several tests were checked by temporarily reintroducing the bug they guard against and confirming they fail:
+- the thin-transparency defects;
+- a late result after removal;
+- revoking URLs on `pagehide`;
+- canvases not released;
+- the focus order;
+- deploying a root build at the subpath.

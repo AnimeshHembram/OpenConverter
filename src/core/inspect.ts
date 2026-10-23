@@ -1,12 +1,17 @@
-import { readDimensions, sniff, type Dimensions } from './detect';
+import { detectAnimation, orientedDimensions, readDimensions, readJpegOrientation, sniff, type Dimensions } from './detect';
 import { ConversionError } from './errors';
 import { extensionOf, findFormatByExtension, findFormatById } from './formats';
-import { MAX_DIMENSION, MAX_FILE_BYTES, formatBytes, formatMegapixels, maxPixels } from './limits';
+import { MAX_DIMENSION, MAX_FILE_BYTES, formatBytes, formatMegapixels, pixelPolicy, type PixelPolicy } from './limits';
 import type { FormatInfo } from './types';
 
 export interface InspectedFile {
   format: FormatInfo;
+  /** As displayed and converted, i.e. after EXIF orientation. */
   dimensions: Dimensions | null;
+  /** EXIF orientation for JPEG (1–8), else null. */
+  orientation: number | null;
+  /** True/false when known from the header, null when it couldn't be determined. */
+  animated: boolean | null;
   warnings: string[];
 }
 
@@ -42,21 +47,34 @@ export async function inspectFile(file: File): Promise<InspectedFile> {
     warnings.push(`The file is named .${extensionOf(file.name)} but is actually a ${format.label} image.`);
   }
 
-  const dimensions = readDimensions(format.id, head);
+  const orientation = format.id === 'jpeg' ? readJpegOrientation(head) : null;
+  const stored = readDimensions(format.id, head);
+  const dimensions = stored ? orientedDimensions(stored, orientation) : null;
   if (dimensions) checkDimensions(dimensions);
-  return { format, dimensions, warnings };
+
+  const animated = detectAnimation(format.id, head);
+  if (animated) {
+    const kind = format.id === 'png' ? 'an animated PNG (APNG)' : 'an animated WebP';
+    warnings.push(`This is ${kind}. Only the first frame will be converted; the animation won't be kept.`);
+  }
+  return { format, dimensions, orientation, animated, warnings };
 }
 
-export function checkDimensions({ width, height }: Dimensions): void {
-  if (width <= 0 || height <= 0) {
+export function checkDimensions({ width, height }: Dimensions, policy: PixelPolicy = pixelPolicy()): void {
+  if (!(width > 0 && height > 0)) {
     throw new ConversionError('DECODE_FAILED', 'This image reports invalid dimensions and may be damaged.');
   }
-  const limit = maxPixels();
-  if (width > MAX_DIMENSION || height > MAX_DIMENSION || width * height > limit) {
+  if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
     throw new ConversionError(
       'IMAGE_TOO_LARGE',
-      `This image is ${width} × ${height} (${formatMegapixels(width * height)}). ` +
-        `This browser can safely handle up to ${formatMegapixels(limit)} and ${MAX_DIMENSION}px per side.`,
+      `This image is ${width} × ${height}. OpenConvert can handle up to ${MAX_DIMENSION.toLocaleString('en')} pixels per side. Resize it first, then try again.`,
+    );
+  }
+  if (width * height > policy.maxPixels) {
+    throw new ConversionError(
+      'IMAGE_TOO_LARGE',
+      `This image is ${width} × ${height} (${formatMegapixels(width * height)}). On this device the limit is ` +
+        `${formatMegapixels(policy.maxPixels)}, because ${policy.reason}. Resize it first, or try on a computer.`,
     );
   }
 }

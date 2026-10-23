@@ -1,8 +1,32 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+dist-*/
+*.tsbuildinfo
+
+# Test output
 coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment files (never commit secrets)
 .env
 .env.*
 !.env.example
+
+# Editors and OS files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
 .DS_Store
 Thumbs.db
+desktop.ini

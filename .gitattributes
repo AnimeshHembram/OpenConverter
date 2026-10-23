@@ -1,0 +1,12 @@
+# Normalise line endings to LF in the repository and working tree, so edits
+# on Windows don't show every line as changed.
+* text=auto eol=lf
+
+# Binary files: never touch line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.bmp binary
+*.wasm binary
+*.zip binary

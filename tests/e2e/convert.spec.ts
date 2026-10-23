@@ -1,76 +1,13 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { sniff } from '../../src/core/detect';
 import { decodeBmp, encodeBmp } from '../../src/modules/image/bmp';
+import { addFiles, convertAndDownload, makeImage, open, pixelAt } from './helpers';
 
 /**
  * Real conversions in a real browser. Test images are drawn with canvas in
  * the page, converted through the UI, downloaded, and the downloaded bytes
  * are checked: magic bytes, MIME, extension, dimensions and pixel values.
  */
-
-interface MakeOpts {
-  mime: string;
-  width: number;
-  height: number;
-  /** Left half opaque red, right half fully transparent. */
-  transparentHalf?: boolean;
-}
-
-async function makeImage(page: Page, o: MakeOpts): Promise<Buffer> {
-  const arr = await page.evaluate(async ({ mime, width, height, transparentHalf }) => {
-    const c = document.createElement('canvas');
-    c.width = width;
-    c.height = height;
-    const g = c.getContext('2d')!;
-    g.fillStyle = 'rgb(220, 30, 30)';
-    g.fillRect(0, 0, transparentHalf ? width / 2 : width, height);
-    const blob: Blob = await new Promise((r) => c.toBlob((b) => r(b!), mime, 0.92));
-    return [...new Uint8Array(await blob.arrayBuffer())];
-  }, o);
-  return Buffer.from(arr);
-}
-
-/** Decode image bytes in the page and return [width, height, rgba at (x,y)]. */
-async function pixelAt(page: Page, bytes: Buffer, mime: string, x: number, y: number) {
-  return page.evaluate(
-    async ({ arr, mime, x, y }) => {
-      const bmp = await createImageBitmap(new Blob([new Uint8Array(arr)], { type: mime }));
-      const c = document.createElement('canvas');
-      c.width = bmp.width;
-      c.height = bmp.height;
-      const g = c.getContext('2d')!;
-      g.drawImage(bmp, 0, 0);
-      return { width: bmp.width, height: bmp.height, rgba: [...g.getImageData(x, y, 1, 1).data] };
-    },
-    { arr: [...bytes], mime, x, y },
-  );
-}
-
-async function open(page: Page, query = '') {
-  const errors: string[] = [];
-  page.on('console', (m) => {
-    if (m.type() === 'error' && !m.text().includes('[OpenConvert]')) errors.push(m.text());
-  });
-  page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`/${query}`);
-  await expect(page.getByTestId('target')).toBeVisible();
-  return errors;
-}
-
-async function addFiles(page: Page, files: { name: string; mimeType: string; buffer: Buffer }[]) {
-  await page.getByTestId('file-input').setInputFiles(files);
-  await expect(page.getByTestId('file-card')).toHaveCount(files.length);
-}
-
-async function convertAndDownload(page: Page, cardIndex = 0) {
-  await page.getByTestId('convert').click();
-  const card = page.getByTestId('file-card').nth(cardIndex);
-  await expect(card).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
-  const [download] = await Promise.all([page.waitForEvent('download'), card.getByTestId('download').click()]);
-  const path = await download.path();
-  const fs = await import('node:fs/promises');
-  return { name: download.suggestedFilename(), bytes: await fs.readFile(path!), card };
-}
 
 test('PNG with transparency → JPEG fills the background and labels the file correctly', async ({ page }) => {
   const errors = await open(page);
@@ -92,7 +29,7 @@ test('PNG with transparency → JPEG fills the background and labels the file co
   expect(errors).toEqual([]);
 });
 
-test('PNG → WebP keeps transparency (native encoder)', async ({ page }) => {
+test('PNG → WebP keeps transparency (browser default encoder)', async ({ page }) => {
   const errors = await open(page);
   const png = await makeImage(page, { mime: 'image/png', width: 50, height: 50, transparentHalf: true });
   await addFiles(page, [{ name: 'icon.png', mimeType: 'image/png', buffer: png }]);

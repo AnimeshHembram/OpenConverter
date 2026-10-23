@@ -64,7 +64,10 @@ export class Controller {
 
   constructor(initial: Settings) {
     this.state = { items: [], settings: initial, running: false };
-    addEventListener('pagehide', () => this.urls.revokeAll());
+    // No cleanup on 'pagehide': the page may be frozen in the back/forward
+    // cache and restored later, and revoked URLs would leave broken
+    // previews. Object URLs are freed by the browser when the document is
+    // finally discarded.
   }
 
   get snapshot(): AppState {
@@ -106,8 +109,11 @@ export class Controller {
   async addFiles(files: Iterable<File>): Promise<void> {
     const list = [...files];
     const room = MAX_BATCH_FILES - this.state.items.length;
+    let skippedNotice = '';
     if (list.length > room) {
-      this.set({ notice: { kind: 'error', text: `You can add up to ${MAX_BATCH_FILES} files at a time. ${list.length - Math.max(0, room)} were skipped.` } });
+      const skipped = list.length - Math.max(0, room);
+      skippedNotice = `You can add up to ${MAX_BATCH_FILES} files at a time. ${skipped} ${skipped === 1 ? 'file was' : 'files were'} skipped.`;
+      this.set({ notice: { kind: 'error', text: skippedNotice } });
       list.length = Math.max(0, room);
     }
     const added: FileItem[] = list.map((file) => ({
@@ -141,6 +147,16 @@ export class Controller {
         }
       }),
     );
+
+    // Announce the outcome (the notice is a polite live region).
+    const stillHere = added.filter((a) => this.item(a.id));
+    const rejected = stillHere.filter((a) => this.item(a.id)?.status === 'error').length;
+    if (!stillHere.length) return;
+    const n = (k: number) => `${k} file${k === 1 ? '' : 's'}`;
+    const text = rejected
+      ? `${n(rejected)} can't be converted. See the details below.`
+      : `${n(stillHere.length)} added.`;
+    this.set({ notice: { kind: rejected || skippedNotice ? 'error' : 'info', text: skippedNotice ? `${skippedNotice} ${text}` : text } });
   }
 
   remove(id: string): void {
@@ -178,6 +194,7 @@ export class Controller {
     for (const it of todo) this.updateItem(it.id, { status: 'queued', progress: 0, error: undefined });
 
     let failed = 0;
+    let converted = 0;
     for (const it of todo) {
       if (batchSignal.aborted) break;
       if (!this.item(it.id)) continue;
@@ -197,11 +214,21 @@ export class Controller {
             onProgress: (p) => this.updateItem(it.id, { progress: p.fraction, stage: p.stage }),
           },
         );
+        // The file may have been removed or the list cleared meanwhile: drop
+        // the result rather than resurrecting it or leaking a URL.
         if (!this.item(it.id)) continue;
         const old = this.item(it.id)?.result;
         if (old) this.urls.revoke(it.id, old.url);
         const url = this.urls.create(it.id, result.blob);
-        this.updateItem(it.id, { status: 'done', progress: 1, stage: undefined, result: { ...result, url, settingsKey: key } });
+        this.updateItem(it.id, {
+          status: 'done',
+          progress: 1,
+          stage: undefined,
+          // Show the dimensions of the image actually decoded and converted.
+          ...(result.width && result.height ? { width: result.width, height: result.height } : {}),
+          result: { ...result, url, settingsKey: key },
+        });
+        converted++;
       } catch (e) {
         if (!this.item(it.id)) continue;
         if (isAbort(e)) {
@@ -211,8 +238,9 @@ export class Controller {
           console.error(`[OpenConvert] ${it.name}:`, e);
           this.updateItem(it.id, { status: 'error', progress: 0, stage: undefined, error: userMessage(e) });
         }
+      } finally {
+        this.current = null;
       }
-      this.current = null;
       // Yield so the browser can paint and collect garbage between files.
       await new Promise((r) => setTimeout(r, 0));
     }
@@ -223,14 +251,13 @@ export class Controller {
     }
     const cancelled = batchSignal.aborted;
     this.batchAbort = null;
-    this.set({
-      running: false,
-      notice: cancelled
-        ? { kind: 'info', text: 'Conversion cancelled.' }
-        : failed
-          ? { kind: 'error', text: `${failed} file${failed > 1 ? 's' : ''} couldn't be converted. See the details below.` }
-          : undefined,
-    });
+    const plural = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
+    let notice: AppState['notice'];
+    if (this.state.items.length === 0) notice = undefined; // cleared mid-batch
+    else if (cancelled) notice = { kind: 'info', text: `Conversion cancelled. ${plural(converted)} converted.` };
+    else if (failed) notice = { kind: 'error', text: `${plural(failed)} couldn't be converted. See the details below.` };
+    else if (converted) notice = { kind: 'info', text: `${plural(converted)} converted.` };
+    this.set({ running: false, notice });
   }
 
   download(id: string): void {
