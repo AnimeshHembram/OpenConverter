@@ -86,7 +86,10 @@ export async function open(page: Page, query = '', path = '/') {
   });
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${path}${query}`);
-  await expect(page.getByTestId('target')).toBeVisible();
+  // The app has mounted once #app drops aria-busy (output settings stay
+  // hidden until files are added).
+  await expect(page.locator('#app')).not.toHaveAttribute('aria-busy');
+  await expect(page.getByTestId('dropzone')).toBeVisible();
   return errors;
 }
 

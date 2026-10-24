@@ -18,9 +18,9 @@ async function tabTo(page: Page, testId: string, max = 10) {
 
 test('the file picker is reachable by keyboard, shows a visible focus ring, and opens from the keyboard', async ({ page, browserName }) => {
   await open(page);
-  // From the top of the page the file picker is reached within the first
-  // couple of Tab presses (after the skip link, where the browser tabs to links).
-  expect(await tabTo(page, 'file-input', 3)).toBeLessThanOrEqual(2);
+  // From the top of the page: the skip link (where the browser tabs to
+  // links), the header's theme switch, then the file picker.
+  expect(await tabTo(page, 'file-input', 4)).toBeLessThanOrEqual(3);
   await expect(page.getByTestId('file-input')).toBeFocused();
 
   const outline = await page.getByTestId('dropzone').evaluate((el) => {
@@ -46,8 +46,13 @@ test('the skip link moves past the header to the converter', async ({ page }) =>
 
 test('controls have accessible names and a logical tab order', async ({ page }) => {
   await open(page);
-  await expect(page.getByLabel('Choose images or drop them here')).toHaveAttribute('type', 'file');
-  await expect(page.getByRole('combobox', { name: 'Convert to' })).toBeVisible();
+  await expect(page.getByLabel('Drop your images here')).toHaveAttribute('type', 'file');
+  await expect(page.getByRole('switch', { name: 'Dark theme' })).toBeVisible();
+  // Output settings appear once there is something to convert.
+  await expect(page.getByTestId('target')).toBeHidden();
+  const png = await makeImage(page, { mime: 'image/png', width: 8, height: 8 });
+  await addFiles(page, [{ name: 'a.png', mimeType: 'image/png', buffer: png }]);
+  await expect(page.getByRole('combobox', { name: 'Convert all to' })).toBeVisible();
   await expect(page.getByRole('slider', { name: /Quality/ })).toBeVisible();
   await page.getByTestId('target').selectOption('jpeg');
   // Colour inputs have no implicit ARIA role; check the label association.

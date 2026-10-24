@@ -4,10 +4,13 @@ import { registerConverter } from './core/registry';
 import { detectImageCapabilities } from './modules/image/capabilities';
 import { createImageConverter } from './modules/image/converter';
 import { pixelPolicy } from './core/limits';
+import { initThemeSwitch } from './ui/theme';
 import { mountApp } from './ui/view';
 
 async function start(): Promise<void> {
   const root = document.getElementById('app')!;
+  const themeSwitch = document.getElementById('theme-switch');
+  if (themeSwitch instanceof HTMLButtonElement) initThemeSwitch(themeSwitch);
   // Debug/test hook: ?noNative=webp forces the fallback encoder path.
   const params = new URLSearchParams(location.search);
   const forceDisable = (params.get('noNative') ?? '').split(',').filter(Boolean);
@@ -31,5 +34,5 @@ async function start(): Promise<void> {
 start().catch((e) => {
   console.error(e);
   const root = document.getElementById('app');
-  if (root) root.textContent = "OpenConvert couldn't start in this browser. Please try an up-to-date Chrome, Edge, Firefox or Safari.";
+  if (root) root.textContent = "OpenConverter couldn't start in this browser. Please try an up-to-date Chrome, Edge, Firefox or Safari.";
 });

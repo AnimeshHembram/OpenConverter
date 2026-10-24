@@ -1,12 +1,12 @@
 /**
- * Plain-DOM view. Deliberately unstyled beyond a neutral token-based theme
- * (see styles.css) so the visual design can be reworked without touching the
- * controller or conversion modules. Every interactive element has a stable
- * `data-testid` used by the end-to-end tests.
+ * Plain-DOM view: presentation only. It reads state from the Controller and
+ * calls its actions; it never touches conversion modules. Colours, spacing
+ * and type all come from tokens in styles.css. Every interactive element has
+ * a stable `data-testid` used by the end-to-end tests.
  */
 import { isStale, settingsKey, type AppState, type Controller, type FileItem } from '../app/controller';
-import { acceptAttribute, findFormatById, getFormat } from '../core/formats';
-import { MAX_FILE_BYTES, formatBytes } from '../core/limits';
+import { acceptAttribute, getFormat } from '../core/formats';
+import { MAX_BATCH_FILES, MAX_FILE_BYTES, formatBytes } from '../core/limits';
 import type { ImageCapabilities } from '../modules/image/capabilities';
 
 type Attrs = Record<string, string | boolean | number | undefined>;
@@ -23,19 +23,51 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ...
   return el;
 }
 
+/** Small monochrome line icons (decorative: always aria-hidden). */
+const ICONS = {
+  upload: 'M12 15V4m0 0 4 4m-4-4-4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3',
+  download: 'M12 4v11m0 0 4-4m-4 4-4-4M5 19h14',
+  close: 'M6 6l12 12M18 6 6 18',
+  lock: 'M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z',
+  expand: 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7',
+} as const;
+
+function icon(name: keyof typeof ICONS, size = 16): SVGSVGElement {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.75');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.classList.add('icon');
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', ICONS[name]);
+  svg.append(path);
+  return svg;
+}
+
 const STATUS_LABEL: Record<FileItem['status'], string> = {
   inspecting: 'Checking file…',
   ready: 'Ready',
   queued: 'Waiting…',
   converting: 'Converting…',
   done: 'Converted',
-  error: 'Error',
+  error: 'Not converted',
 };
 
 export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabilities): void {
   root.replaceChildren();
 
-  // ---- Drop zone -------------------------------------------------------
+  // ---- Upload zone -----------------------------------------------------
+  // The real <input> is visually hidden and placed *before* its label, so
+  // the label can show the input's keyboard focus (styles.css). Clicking
+  // anywhere on the label opens the native file picker.
   const input = h('input', {
     type: 'file',
     multiple: true,
@@ -46,48 +78,75 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     'aria-describedby': 'dropzone-hint',
     'data-testid': 'file-input',
   });
-  // The real <input> is visually hidden and placed *before* its label so the
-  // label can show the input's keyboard focus (`#file-input:focus-visible +
-  // .dropzone` in styles.css). Clicking the label opens the file picker.
+  const zoneStatus = h('span', { class: 'dz-status', 'aria-live': 'polite' });
   const dropzone = h(
     'label',
     { class: 'dropzone', for: 'file-input', 'data-testid': 'dropzone' },
-    h('span', { class: 'dropzone-title', id: 'dropzone-title', text: 'Choose images or drop them here' }),
+    h('span', { class: 'dz-icon' }, icon('upload', 22)),
+    h(
+      'span',
+      { class: 'dz-text' },
+      h('span', { class: 'dz-title', id: 'dropzone-title', text: 'Drop your images here' }),
+      h('span', { class: 'dz-browse', text: 'or browse files' }),
+    ),
     h('span', {
-      class: 'dropzone-hint',
+      class: 'dz-meta',
       id: 'dropzone-hint',
-      text: `PNG, JPEG, WebP or BMP · up to ${formatBytes(MAX_FILE_BYTES)} each · you can also paste`,
+      text: `PNG, JPEG, WebP or BMP · up to ${formatBytes(MAX_FILE_BYTES)} per file · up to ${MAX_BATCH_FILES} files · you can also paste`,
     }),
+    zoneStatus,
   );
+  const privacy = h(
+    'p',
+    { class: 'privacy' },
+    icon('lock', 14),
+    h('span', { text: 'Your files are converted on this device and never uploaded.' }),
+  );
+
   input.addEventListener('change', () => {
     if (input.files?.length) void c.addFiles(input.files);
     input.value = ''; // allow re-selecting the same file
   });
+
+  let zoneMessageTimer: number | undefined;
+  const showZoneError = (text: string) => {
+    window.clearTimeout(zoneMessageTimer);
+    dropzone.classList.add('is-error');
+    zoneStatus.textContent = text;
+    zoneMessageTimer = window.setTimeout(() => {
+      dropzone.classList.remove('is-error');
+      zoneStatus.textContent = '';
+    }, 4000);
+  };
+
+  // Drag state: count enter/leave pairs so child elements don't flicker it.
   let dragDepth = 0;
-  dropzone.addEventListener('dragenter', (e) => {
+  const carriesFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+  const endDrag = () => {
+    dragDepth = 0;
+    dropzone.classList.remove('is-dragover');
+  };
+  window.addEventListener('dragenter', (e) => {
+    if (!carriesFiles(e)) return;
     e.preventDefault();
     dragDepth++;
     dropzone.classList.add('is-dragover');
   });
-  dropzone.addEventListener('dragleave', () => {
-    if (--dragDepth <= 0) {
-      dragDepth = 0;
-      dropzone.classList.remove('is-dragover');
-    }
+  window.addEventListener('dragleave', () => {
+    if (--dragDepth <= 0) endDrag();
   });
-  dropzone.addEventListener('dragover', (e) => {
-    e.preventDefault();
+  window.addEventListener('dragover', (e) => {
+    e.preventDefault(); // otherwise the browser would navigate to the file
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
   });
-  dropzone.addEventListener('drop', (e) => {
+  // Files can be dropped anywhere on the page, not only on the zone.
+  window.addEventListener('drop', (e) => {
     e.preventDefault();
-    dragDepth = 0;
-    dropzone.classList.remove('is-dragover');
+    endDrag();
     const files = [...(e.dataTransfer?.files ?? [])];
     if (files.length) void c.addFiles(files);
+    else showZoneError('Nothing to add. Drop image files, not text or links.');
   });
-  // A file dropped beside the drop zone would otherwise navigate away.
-  for (const t of ['dragover', 'drop'] as const) window.addEventListener(t, (e) => e.preventDefault());
   window.addEventListener('paste', (e) => {
     // Some browsers expose pasted images only through `items` (e.g. a
     // screenshot copied to the clipboard), others through `files`.
@@ -99,9 +158,9 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     if (files.length) void c.addFiles(files);
   });
 
-  // ---- Settings --------------------------------------------------------
+  // ---- Output settings -------------------------------------------------
   const targets = c.availableTargets();
-  const targetSelect = h('select', { id: 'target', 'data-testid': 'target' });
+  const targetSelect = h('select', { id: 'target', class: 'select', 'data-testid': 'target' });
   for (const id of ['webp', 'jpeg', 'png', 'bmp']) {
     if (!targets.includes(id)) continue;
     const f = getFormat(id);
@@ -110,36 +169,45 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   }
   targetSelect.addEventListener('change', () => c.setSettings({ target: targetSelect.value }));
 
-  const quality = h('input', { type: 'range', id: 'quality', min: 1, max: 100, step: 1, 'data-testid': 'quality' });
+  const quality = h('input', { type: 'range', id: 'quality', class: 'range', min: 1, max: 100, step: 1, 'data-testid': 'quality' });
   // A plain span, not <output>: <output> is an implicit live region and would
   // compete with the notice. The slider already announces its own value.
-  const qualityOut = h('span', { class: 'quality-value' });
+  const qualityOut = h('span', { class: 'field-value' });
   quality.addEventListener('input', () => c.setSettings({ quality: Number(quality.value) / 100 }));
-  const qualityField = h('div', { class: 'field' }, h('label', { for: 'quality', text: 'Quality ' }, qualityOut), quality);
+  const qualityField = h(
+    'div',
+    { class: 'field field-quality' },
+    h('label', { for: 'quality', class: 'field-label' }, 'Quality ', qualityOut),
+    quality,
+  );
 
-  const bg = h('input', { type: 'color', id: 'background', 'data-testid': 'background' });
+  const bg = h('input', { type: 'color', id: 'background', class: 'color', 'data-testid': 'background' });
   bg.addEventListener('input', () => c.setSettings({ background: bg.value }));
   const bgField = h(
     'div',
-    { class: 'field' },
-    h('label', { for: 'background', text: 'Fill for transparent areas' }),
+    { class: 'field field-color' },
+    h('label', { for: 'background', class: 'field-label', text: 'Fill for transparent areas' }),
     bg,
   );
 
-  const formatNote = h('p', { class: 'field-note' });
+  const formatNote = h('p', { class: 'format-note' });
   const settings = h(
-    'section',
-    { class: 'panel settings', 'aria-labelledby': 'settings-title' },
-    h('h2', { id: 'settings-title', class: 'panel-title', text: 'Output' }),
-    h('div', { class: 'settings-grid' }, h('div', { class: 'field' }, h('label', { for: 'target', text: 'Convert to' }), targetSelect), qualityField, bgField),
-    formatNote,
+    'div',
+    { class: 'settings', role: 'group', 'aria-label': 'Output settings' },
+    h('div', { class: 'field field-target' }, h('label', { for: 'target', class: 'field-label', text: 'Convert all to' }), targetSelect),
+    qualityField,
+    bgField,
   );
 
-  // ---- Toolbar ---------------------------------------------------------
+  // ---- File list and actions --------------------------------------------
+  const listTitle = h('h2', { class: 'list-title', id: 'files-title' });
+  const listSummary = h('span', { class: 'list-summary', 'data-testid': 'list-summary' });
+  const list = h('ul', { class: 'file-list', 'aria-labelledby': 'files-title', 'data-testid': 'file-list' });
+
   const convertBtn = h('button', { type: 'button', class: 'btn btn-primary', 'data-testid': 'convert' });
   const cancelBtn = h('button', { type: 'button', class: 'btn', text: 'Cancel', 'data-testid': 'cancel' });
   const downloadAllBtn = h('button', { type: 'button', class: 'btn', 'data-testid': 'download-all' });
-  const clearBtn = h('button', { type: 'button', class: 'btn btn-quiet', text: 'Clear all', 'data-testid': 'clear' });
+  const clearBtn = h('button', { type: 'button', class: 'btn btn-ghost', text: 'Clear all', 'data-testid': 'clear' });
   convertBtn.addEventListener('click', () => void c.convertAll());
   cancelBtn.addEventListener('click', () => c.cancel());
   downloadAllBtn.addEventListener('click', () => void c.downloadAll());
@@ -147,14 +215,28 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     c.clear();
     input.focus(); // the list is gone; return focus to where files are added
   });
+
   const overall = h('progress', { class: 'overall', max: 1, value: 0, 'aria-label': 'Overall progress', 'data-testid': 'overall-progress' });
-  const toolbar = h('div', { class: 'toolbar' }, convertBtn, cancelBtn, downloadAllBtn, clearBtn);
-
   const notice = h('div', { class: 'notice', role: 'status', 'aria-live': 'polite', 'data-testid': 'notice' });
-  const list = h('ul', { class: 'file-list', 'aria-label': 'Files', 'data-testid': 'file-list' });
-  const workspace = h('section', { class: 'workspace' }, toolbar, overall, notice, list);
+  const actionbar = h(
+    'div',
+    { class: 'actionbar' },
+    overall,
+    notice,
+    h('div', { class: 'actions' }, clearBtn, cancelBtn, downloadAllBtn, convertBtn),
+  );
 
-  root.append(input, dropzone, settings, workspace);
+  const workspace = h(
+    'section',
+    { class: 'workspace', 'aria-labelledby': 'files-title' },
+    h('div', { class: 'list-header' }, h('div', { class: 'list-heading' }, listTitle, listSummary), formatNote),
+    settings,
+    list,
+    actionbar,
+  );
+
+  const preview = createPreviewDialog(c);
+  root.append(input, dropzone, privacy, workspace, preview.dialog);
 
   // ---- Rendering -------------------------------------------------------
   const cards = new Map<string, { el: HTMLLIElement; item?: FileItem; key?: string; refs: CardRefs }>();
@@ -172,20 +254,35 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
       : target.id === 'png'
         ? 'PNG is lossless: no quality is lost, but files may be larger.'
         : caps.encoders.get(target.id) === 'wasm'
-          ? 'Your browser has no built-in WebP encoder, so OpenConvert uses its own. It runs on your device too.'
+          ? 'Your browser has no built-in WebP encoder, so OpenConverter uses its own. It runs on this device too.'
           : '';
     formatNote.hidden = !formatNote.textContent;
+
+    const has = s.items.length > 0;
+    document.body.classList.toggle('has-files', has);
+    workspace.hidden = !has;
+    listTitle.textContent = `${s.items.length} ${s.items.length === 1 ? 'file' : 'files'}`;
+    const converted = s.items.filter((i) => i.status === 'done' && !isStale(i, s.settings)).length;
+    const failed = s.items.filter((i) => i.status === 'error').length;
+    listSummary.textContent = [converted ? `${converted} converted` : '', failed ? `${failed} not converted` : ''].filter(Boolean).join(' · ');
+    listSummary.hidden = !listSummary.textContent;
+
+    const inspecting = s.items.some((i) => i.status === 'inspecting');
+    dropzone.classList.toggle('is-busy', inspecting);
+    if (inspecting) zoneStatus.textContent = 'Checking files…';
+    else if (!dropzone.classList.contains('is-error')) zoneStatus.textContent = '';
 
     const key = settingsKey(s.settings);
     const pending = s.items.filter((i) => i.format && (i.status === 'ready' || i.status === 'error' || (i.status === 'done' && isStale(i, s.settings))));
     convertBtn.textContent = pending.length > 1 ? `Convert ${pending.length} files` : 'Convert';
+    // While converting, Cancel takes Convert's place and downloads wait.
     convertBtn.disabled = s.running || pending.length === 0;
+    convertBtn.hidden = s.running;
     cancelBtn.hidden = !s.running;
     const downloadable = c.downloadableItems();
     downloadAllBtn.textContent = downloadable.length > 1 ? `Download all (${downloadable.length}) as ZIP` : 'Download';
-    downloadAllBtn.disabled = s.running || downloadable.length === 0;
-    clearBtn.disabled = s.items.length === 0;
-    workspace.hidden = s.items.length === 0;
+    downloadAllBtn.hidden = s.running || downloadable.length === 0;
+    clearBtn.disabled = !has;
 
     const active = s.items.filter((i) => i.status === 'queued' || i.status === 'converting' || (s.running && i.status === 'done'));
     overall.hidden = !s.running;
@@ -194,17 +291,17 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     }
 
     notice.textContent = s.notice?.text ?? '';
-    notice.className = `notice${s.notice ? ` notice-${s.notice.kind}` : ''}`;
+    notice.dataset.kind = s.notice?.kind ?? '';
     notice.hidden = !s.notice;
 
-    // Keyed list reconciliation: only changed cards are touched.
+    // Keyed list reconciliation: only changed rows are touched.
     const seen = new Set<string>();
     let prev: Element | null = null;
     for (const item of s.items) {
       seen.add(item.id);
       let card = cards.get(item.id);
       if (!card) {
-        const refs = createCard(item.id, c, () => input);
+        const refs = createCard(item.id, c, () => input, (id, opener) => preview.open(id, opener));
         card = { el: refs.root, refs };
         cards.set(item.id, card);
       }
@@ -223,6 +320,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
         cards.delete(id);
       }
     }
+    preview.update(s);
   }
 
   c.subscribe(render);
@@ -239,38 +337,64 @@ interface CardRefs {
   status: HTMLElement;
   progress: HTMLProgressElement;
   messages: HTMLUListElement;
+  previewBtn: HTMLButtonElement;
   download: HTMLButtonElement;
   remove: HTMLButtonElement;
 }
 
-function createCard(id: string, c: Controller, fallbackFocus: () => HTMLElement): CardRefs {
+function createCard(
+  id: string,
+  c: Controller,
+  fallbackFocus: () => HTMLElement,
+  openPreview: (id: string, opener: HTMLElement) => void,
+): CardRefs {
   const beforeImg = h('img', { alt: '', class: 'thumb', decoding: 'async', loading: 'lazy' });
   const afterImg = h('img', { alt: '', class: 'thumb', decoding: 'async' });
-  const afterFig = h('figure', { class: 'preview' }, afterImg, h('figcaption', { text: 'After' }));
+  const afterFig = h(
+    'figure',
+    { class: 'preview preview-after' },
+    afterImg,
+    h('figcaption', { class: 'visually-hidden', text: 'After' }),
+  );
+  const previews = h(
+    'div',
+    { class: 'previews' },
+    h('figure', { class: 'preview' }, beforeImg, h('figcaption', { class: 'visually-hidden', text: 'Before' })),
+    afterFig,
+  );
   const name = h('p', { class: 'file-name' });
   const meta = h('p', { class: 'file-meta' });
   const status = h('p', { class: 'file-status', 'data-testid': 'status' });
   const progress = h('progress', { max: 1, value: 0, class: 'file-progress', 'data-testid': 'file-progress' });
   const messages = h('ul', { class: 'file-messages' });
-  const download = h('button', { type: 'button', class: 'btn btn-primary btn-small', 'data-testid': 'download' });
-  const remove = h('button', { type: 'button', class: 'btn btn-quiet btn-small', text: 'Remove', 'data-testid': 'remove' });
+  const download = h(
+    'button',
+    { type: 'button', class: 'btn btn-small', 'data-testid': 'download' },
+    icon('download', 15),
+    h('span', { text: 'Download' }),
+  );
+  const remove = h('button', { type: 'button', class: 'icon-btn', 'data-testid': 'remove', title: 'Remove' }, icon('close', 16));
+  const previewBtn = h('button', { type: 'button', class: 'icon-btn', 'data-testid': 'preview', title: 'Preview' }, icon('expand', 16));
+  previewBtn.addEventListener('click', () => openPreview(id, previewBtn));
+  // Clicking a thumbnail is a mouse shortcut; keyboard users use the button.
+  previews.addEventListener('click', () => openPreview(id, previewBtn));
   download.addEventListener('click', () => c.download(id));
   remove.addEventListener('click', () => {
-    // Keep keyboard focus in a sensible place when this card disappears:
-    // the next card's Remove button, else the previous one, else the input.
+    // Keep keyboard focus in a sensible place when this row disappears:
+    // the next row's Remove button, else the previous one, else the input.
     const card = remove.closest('li');
     const neighbour = (card?.nextElementSibling ?? card?.previousElementSibling)?.querySelector<HTMLElement>('[data-testid=remove]');
     c.remove(id);
     (neighbour ?? fallbackFocus()).focus();
   });
-  const previews = h('div', { class: 'previews' }, h('figure', { class: 'preview' }, beforeImg, h('figcaption', { text: 'Before' })), afterFig);
   const root = h(
     'li',
-    { class: 'file-card', 'data-testid': 'file-card', 'data-id': id },
+    { class: 'file-row', 'data-testid': 'file-card', 'data-id': id },
     previews,
-    h('div', { class: 'file-body' }, name, meta, status, progress, messages, h('div', { class: 'file-actions' }, download, remove)),
+    h('div', { class: 'file-body' }, name, meta, status, progress, messages),
+    h('div', { class: 'file-actions' }, download, previewBtn, remove),
   );
-  return { root, previews, beforeImg, afterImg, afterFig, name, meta, status, progress, messages, download, remove };
+  return { root, previews, beforeImg, afterImg, afterFig, name, meta, status, progress, messages, previewBtn, download, remove };
 }
 
 function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
@@ -284,12 +408,12 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
     r.beforeImg.src = item.previewUrl;
     r.beforeImg.alt = `Original: ${item.name}`;
   }
-  r.beforeImg.hidden = !item.previewUrl;
   r.previews.hidden = !item.previewUrl;
   r.root.classList.toggle('no-preview', !item.previewUrl);
 
   const res = item.result;
   r.afterFig.hidden = !res;
+  r.root.classList.toggle('has-result', !!res);
   if (res && r.afterImg.getAttribute('src') !== res.url) {
     r.afterImg.src = res.url;
     r.afterImg.alt = `Converted: ${res.fileName}`;
@@ -305,6 +429,7 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
     if (stale) statusText += ' · settings changed, convert again to update';
   }
   r.status.textContent = statusText;
+  r.status.dataset.stale = String(stale);
   r.progress.hidden = item.status !== 'converting';
   r.progress.value = item.progress;
   r.progress.setAttribute('aria-label', `Converting ${item.name}`);
@@ -313,7 +438,7 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
   if (item.error) msgs.push(['error', item.error]);
   for (const w of item.inputWarnings) msgs.push(['warning', w]);
   for (const w of res?.warnings ?? []) msgs.push(['warning', w]);
-  // A text prefix, so the meaning doesn't depend on colour alone.
+  // A text prefix, so the meaning never depends on styling alone.
   r.messages.replaceChildren(
     ...msgs.map(([kind, text]) =>
       h('li', { class: `msg msg-${kind}` }, h('strong', { text: kind === 'error' ? 'Error: ' : 'Note: ' }), text),
@@ -323,9 +448,100 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
 
   r.download.hidden = !res;
   if (res) {
-    r.download.textContent = `Download ${findFormatById(res.format.id)?.label ?? ''}`.trim();
     r.download.setAttribute('aria-label', `Download ${res.fileName}`);
     r.download.title = res.fileName;
   }
   r.remove.setAttribute('aria-label', `Remove ${item.name}`);
+  r.previewBtn.hidden = !item.previewUrl;
+  r.previewBtn.setAttribute('aria-label', `Preview ${item.name}`);
+}
+
+/**
+ * Large before/after preview in a native modal <dialog>: focus is trapped
+ * inside, Escape closes it, and focus returns to the button that opened it.
+ */
+function createPreviewDialog(c: Controller) {
+  const title = h('h2', { class: 'pd-title', id: 'preview-title' });
+  const closeBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close preview', 'data-testid': 'preview-close' }, icon('close', 18));
+  const panes = h('div', { class: 'pd-panes' });
+  const footer = h('div', { class: 'pd-footer' });
+  const dialog = h(
+    'dialog',
+    { class: 'preview-dialog', 'aria-labelledby': 'preview-title', 'data-testid': 'preview-dialog' },
+    h('div', { class: 'pd-header' }, title, closeBtn),
+    panes,
+    footer,
+  );
+  let openId: string | null = null;
+  let opener: HTMLElement | null = null;
+  let rendered: FileItem | undefined;
+
+  const close = () => {
+    if (dialog.open) dialog.close();
+  };
+  closeBtn.addEventListener('click', close);
+  // A click on the backdrop lands on the <dialog> element itself.
+  dialog.addEventListener('click', (e) => {
+    if (e.target === dialog) close();
+  });
+  dialog.addEventListener('close', () => {
+    openId = null;
+    rendered = undefined;
+    // Return focus to the opener if it still exists, as native dialogs do.
+    if (opener?.isConnected) opener.focus();
+    opener = null;
+  });
+
+  const pane = (label: string, src: string | undefined, alt: string, caption: string) =>
+    h(
+      'figure',
+      { class: 'pd-pane' },
+      h('figcaption', { class: 'pd-label' }, h('span', { text: label }), h('span', { class: 'pd-meta', text: caption })),
+      src
+        ? h('div', { class: 'pd-image' }, h('img', { src, alt, decoding: 'async' }))
+        : h('div', { class: 'pd-image pd-empty', text: 'Not converted yet' }),
+    );
+
+  function render(item: FileItem) {
+    rendered = item;
+    title.textContent = item.name;
+    const dims = item.width && item.height ? `${item.width} × ${item.height}` : '';
+    const res = item.result;
+    panes.replaceChildren(
+      pane('Original', item.previewUrl, `Original: ${item.name}`, [item.format?.label, dims, formatBytes(item.size)].filter(Boolean).join(' · ')),
+      pane(
+        'Converted',
+        res?.url,
+        res ? `Converted: ${res.fileName}` : '',
+        res ? [res.format.label, res.width && res.height ? `${res.width} × ${res.height}` : '', formatBytes(res.blob.size)].filter(Boolean).join(' · ') : '',
+      ),
+    );
+    footer.replaceChildren();
+    if (res) {
+      const dl = h('button', { type: 'button', class: 'btn btn-primary', 'aria-label': `Download ${res.fileName}` }, icon('download', 15), h('span', { text: `Download ${res.format.label}` }));
+      dl.addEventListener('click', () => c.download(item.id));
+      footer.append(dl);
+    }
+    footer.hidden = !res;
+  }
+
+  return {
+    dialog,
+    open(id: string, from: HTMLElement) {
+      const item = c.snapshot.items.find((i) => i.id === id);
+      if (!item?.previewUrl) return;
+      openId = id;
+      opener = from;
+      render(item);
+      if (!dialog.open) dialog.showModal();
+      closeBtn.focus();
+    },
+    /** Keep an open preview in sync: new result, or close if the file is gone. */
+    update(s: AppState) {
+      if (!openId) return;
+      const item = s.items.find((i) => i.id === openId);
+      if (!item) close();
+      else if (item !== rendered && (item.result !== rendered?.result || item.previewUrl !== rendered?.previewUrl)) render(item);
+    },
+  };
 }

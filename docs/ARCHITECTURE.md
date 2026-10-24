@@ -3,7 +3,7 @@
 ## Layers
 
 ```
- UI (src/ui)            renders state, forwards user actions; placeholder look
+ UI (src/ui)            renders state, forwards user actions; monochrome design
         │ subscribe / call Controller methods
  Controller (src/app)   state, queue, cancellation, downloads, object-URL lifetime
         │ registry lookups
@@ -17,6 +17,14 @@
 - The `AppState` and `FileItem` shapes.
 
 The UI never imports a conversion module, so a redesign can replace `src/ui/view.ts` and `src/styles.css` completely. Keep the `data-testid` attributes so the browser tests stay valid.
+
+## Interface (src/ui, src/styles.css)
+
+- **Design tokens.** All colours, radii and the control height are CSS custom properties. Light is defined on `:root` and dark on `[data-theme='dark']`, each exactly once. Text greys meet WCAG AA (4.5:1) on every background they appear on; a browser test checks every visible text node in both themes.
+- **Theme.** `public/theme-init.js` runs synchronously in `<head>` and sets `data-theme` (saved choice, else the system preference) before first paint. It's a separate file because the CSP forbids inline scripts. `src/ui/theme.ts` wires the header switch (`role="switch"`), saves the choice in `localStorage` (failures ignored), follows live system changes until the user chooses, and keeps `<meta name="theme-color">` in sync. Both files share one storage key; a unit test checks it.
+- **Layout states.** `body.has-files` switches between the empty state (large centred drop zone) and the working state (compact zone, settings, list, action bar). The action bar is `position: sticky` inside a container with `overflow: clip`, so it stays on screen in long lists.
+- **Preview.** A native modal `<dialog>`: focus moves to Close, Escape or a backdrop click closes it, and focus returns to the opener. It re-renders when the item's result arrives and closes if the file is removed.
+- **No fonts or images are fetched.** The type is a system font stack and every icon is inline SVG, so the page makes no third-party requests.
 
 **Modules** register `Converter`s. A converter declares which outputs it can produce for an input *in this browser* (`outputsFor`) and performs one conversion, reporting progress and honouring an `AbortSignal`.
 
@@ -110,4 +118,6 @@ Several tests were checked by temporarily reintroducing the bug they guard again
 - revoking URLs on `pagehide`;
 - canvases not released;
 - the focus order;
-- deploying a root build at the subpath.
+- deploying a root build at the subpath;
+- low-contrast text colours;
+- cropped preview images.

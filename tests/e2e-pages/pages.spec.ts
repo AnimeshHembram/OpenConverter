@@ -25,7 +25,8 @@ async function openPages(page: Page, query = ''): Promise<Watch> {
   });
   page.on('pageerror', (e) => w.errors.push(e.message));
   await page.goto(`./${query}`);
-  await expect(page.getByTestId('target')).toBeVisible();
+  await expect(page.locator('#app')).not.toHaveAttribute('aria-busy');
+  await expect(page.getByTestId('dropzone')).toBeVisible();
   return w;
 }
 
@@ -112,5 +113,5 @@ test('the subpath without a trailing slash redirects, like GitHub Pages', async 
   const noSlash = baseURL!.replace(/\/$/, '');
   const res = await page.goto(noSlash);
   expect(res?.url()).toBe(baseURL);
-  await expect(page.getByTestId('target')).toBeVisible();
+  await expect(page.getByTestId('dropzone')).toBeVisible();
 });

@@ -30,7 +30,7 @@ async function loadWebpEncoder(): Promise<WebpEncode> {
     webpEncoder = null; // allow a retry once the network is back
     throw new ConversionError(
       'ENCODER_LOAD_FAILED',
-      "OpenConvert's built-in WebP encoder couldn't be loaded. Check your internet connection and try again, or choose PNG or JPEG instead.",
+      "OpenConverter's built-in WebP encoder couldn't be loaded. Check your internet connection and try again, or choose PNG or JPEG instead.",
       { cause: e },
     );
   }

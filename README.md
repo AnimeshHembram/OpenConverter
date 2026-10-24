@@ -1,4 +1,4 @@
-# OpenConvert
+# OpenConverter
 
 Free, open-source file conversion that runs **entirely in your browser**. No account, no uploads, no server, no tracking.
 
@@ -8,7 +8,9 @@ Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/Open
 
 ## Features
 
-- Add files with the file picker, drag and drop, or paste.
+- Add files by clicking the upload area, dragging and dropping them anywhere on the page, or pasting.
+- Light and dark themes: follows your system until you choose, then remembers your choice.
+- A large before/after preview for each file, with format, dimensions and size, and a download button.
 - The real format is detected from the file's bytes, not its name. A wrong extension gets a warning.
 - Each file shows its name, format, dimensions (as displayed, after photo rotation) and size, with before and after previews.
 - Quality setting for JPEG and WebP. A background colour fills transparent areas when converting to JPEG.
@@ -44,7 +46,7 @@ Images over the limit are rejected from their header **before** decoding, with a
 | Capability | How |
 |---|---|
 | PNG and JPEG output | Native canvas encoder (all modern browsers). |
-| WebP output | Native where available (Chrome, Edge, Firefox). Safari has no native WebP encoder, so OpenConvert loads its own, [libwebp compiled to WebAssembly](https://github.com/jamsinclair/jSquash). It runs on your device and is only downloaded from this site when needed. If it can't load, the user gets a specific error with alternatives. |
+| WebP output | Native where available (Chrome, Edge, Firefox). Safari has no native WebP encoder, so OpenConverter loads its own, [libwebp compiled to WebAssembly](https://github.com/jamsinclair/jSquash). It runs on your device and is only downloaded from this site when needed. If it can't load, the user gets a specific error with alternatives. |
 | BMP output | Built-in TypeScript encoder (no browser can write BMP natively). |
 | BMP input | Built-in decoder for consistent transparency, with the browser as a fallback for rare variants (RLE). |
 
@@ -86,6 +88,7 @@ Debug hook: add `?noNative=webp` to the URL to force the WebAssembly WebP encode
 
 - **Unit tests** cover format detection, header parsing (dimensions, animation, EXIF), the BMP codec, ZIP output, file names, limits and their boundaries, device-limit selection, output verification, error messages, and controller lifecycle (cancel, remove, clear, failures part-way through a batch, stale results).
 - **Browser tests** run real conversions through the UI and check downloaded bytes and pixels. They cover the thin-transparency regressions, animation warnings, rotated photos, WebP encoder failure and retry, cancel and remove during conversion, release of bitmaps and canvases, back/forward-cache restore, keyboard access and focus, drag-and-drop, paste, ZIP naming and the size-limit messages.
+- **Interface tests** cover the theme (system default, switching, persistence, no flash of the wrong theme, blocked storage), the upload zone's states, the preview dialog (keyboard, focus return, uncropped images), the pinned action bar, and a WCAG AA contrast check of every visible piece of text in both themes.
 - **GitHub Pages suite** builds with the deployed base path and serves it like GitHub Pages. It checks asset paths, native conversion and the forced WebAssembly WebP encoder, the security policy, footer links, and that no request leaves the site.
 
 **Manual checks that automation can't replace:** real iPhone/iPad Safari (WebKit on Linux is only an approximation), real Android Chrome on a low-memory phone, macOS Safari, a real back/forward navigation (Playwright's Chromium disables the back/forward cache), the native file picker and drag-and-drop from the desktop, screen reader announcements (VoiceOver, NVDA, TalkBack), and very large images near the limits.
@@ -109,8 +112,9 @@ src/
   core/            formats, detection, validation, limits, errors, registry, zip, object URLs
   modules/image/   image converter: decode, encode, capabilities, BMP codec
   app/             controller: state, queue, cancellation, downloads (no DOM styling)
-  ui/              plain-DOM view, replaceable without touching conversion logic
-  styles.css       placeholder theme built from CSS custom properties
+  ui/              view.ts (plain-DOM interface) and theme.ts (light/dark switch)
+  styles.css       monochrome design: every colour is a token, each theme defined once
+public/            theme-init.js: applies the theme before first paint
 scripts/           build-pages.mjs, serve-pages.mjs (GitHub Pages emulation)
 tests/unit/        Vitest
 tests/e2e/         Playwright, root build
