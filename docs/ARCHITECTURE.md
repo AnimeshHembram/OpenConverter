@@ -91,22 +91,16 @@ The UI never imports a conversion module, so a redesign can replace `src/ui/view
 - There are no inline scripts or styles, no third-party origins and no analytics.
 - Third-party licence texts are emitted into `THIRD_PARTY_NOTICES.txt` at build time from the installed packages.
 
-## Phase 2 boundaries
+## Documents (Level 2)
 
-PDF is already an *output* of the image converter (`category: 'document'`, rejected as input by `inspectFile`). Document conversion isn't implemented. When it is:
+**Stage 1 (done): text and data.**
+- `src/core/text.ts` decodes text (BOM, strict UTF-8, then Windows-1252) and classifies it: JSON by parsing, CSV by a delimiter that splits the first lines consistently, Markdown by counting syntax features. `.csv`/`.md` extensions are trusted; a `.txt` only becomes CSV or Markdown when the content is unambiguous.
+- `src/core/zipdir.ts` reads only a ZIP's central directory to tell `.docx`, `.xlsx`, `.pptx` and OpenDocument apart. `sniff` also recognises the Office 97–2003 container; those files are rejected with advice to re-save.
+- `src/modules/document/` registers the `document-text` converter: `table.ts` (JSON ↔ rows, typing, Markdown/HTML tables), `markdown.ts` (`marked`), `xlsx.ts` (`exceljs`, loaded with `import()` on first use). `DOCUMENT_OUTPUTS` lists each input's outputs, default first. Every output passes `verifyDocument` (extension, UTF-8 text, JSON parses, workbook structure).
+- Documents choose their output per file (`FileItem.target`, `Controller.setTarget`); images keep the shared settings. `itemKey` decides when a result is out of date.
+- The standalone build can't load lazy chunks from `file://`, so it registers the converter with `spreadsheets: false` and Excel files are explained rather than offered.
 
-1. Add formats to `src/core/formats.ts` with `category: 'document'`. Extend `sniff` (PDF is already recognised and currently rejected) and `inspectFile`.
-2. Create `src/modules/document/`, exporting `createDocumentConverter(caps)` and registering it in `src/main.ts`. The controller, queue, ZIP and download code need no changes.
-3. **Lazy-load** heavy libraries inside `convert()` with `await import(...)`, as `loadWebpEncoder` does, so the image converter stays small to load.
-4. Run CPU-heavy work in a Web Worker. This needs `worker-src 'self'` in the CSP, which is currently `'none'`. Pass `ArrayBuffer`s as transferables.
-5. Route every output through a verifier like `verifyOutput`. A document converter must never offer a file under a misleading extension either.
-6. Every new dependency needs owner approval, a licence check, and an entry in the third-party-notices plugin. Anything that needs a server or a third-party network request is out of scope by design and blocked by the CSP.
-7. The UI will need per-category output choices; the current settings panel assumes images.
-
-Candidate libraries, none installed yet:
-- `pdf-lib` (MIT) to create and edit PDFs;
-- `pdfjs-dist` (Apache-2.0) to render PDF pages to images;
-- `mammoth` (BSD-2) for DOCX to HTML.
+**Next stages:** PDF (`pdfjs-dist` to render pages and extract text, `pdf-lib` to write and compress; needs `worker-src 'self'`), Word (`mammoth` to read, `docx` to write), PowerPoint (`jszip` to read slides). Each loads lazily, like `exceljs`.
 
 ## Testing
 

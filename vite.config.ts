@@ -70,6 +70,14 @@ function thirdPartyNoticesPlugin(): Plugin {
     { title: '@jsquash/webp (Apache-2.0) — https://github.com/jamsinclair/jSquash', file: join(pkgDir('@jsquash/webp'), 'LICENSE') },
     { title: 'libwebp, compiled to WebAssembly inside @jsquash/webp (BSD-3-Clause) — https://chromium.googlesource.com/webm/libwebp', file: join(pkgDir('@jsquash/webp'), 'codec', 'LICENSE.codec.md') },
     { title: 'wasm-feature-detect (Apache-2.0) — https://github.com/GoogleChromeLabs/wasm-feature-detect', file: join(pkgDir('wasm-feature-detect'), 'LICENSE') },
+    { title: 'marked (MIT) — https://github.com/markedjs/marked', file: join(pkgDir('marked'), 'LICENSE') },
+    { title: 'exceljs (MIT) — https://github.com/exceljs/exceljs', file: join(pkgDir('exceljs'), 'LICENSE') },
+    // exceljs's browser build bundles these packages:
+    { title: 'JSZip, bundled in exceljs (used under MIT; dual-licensed MIT or GPL-3.0) — https://github.com/Stuk/jszip', file: join(pkgDir('jszip'), 'LICENSE.markdown') },
+    { title: 'pako, bundled in exceljs (MIT and Zlib) — https://github.com/nodeca/pako', file: join(pkgDir('pako'), 'LICENSE') },
+    { title: 'buffer, bundled in exceljs (MIT) — https://github.com/feross/buffer', file: join(pkgDir('buffer'), 'LICENSE') },
+    { title: 'dayjs, bundled in exceljs (MIT) — https://github.com/iamkun/dayjs', file: join(pkgDir('dayjs'), 'LICENSE') },
+    { title: 'readable-stream, bundled in exceljs (MIT) — https://github.com/nodejs/readable-stream', file: join(pkgDir('readable-stream'), 'LICENSE') },
   ];
   return {
     name: 'openconvert-third-party-notices',
@@ -81,7 +89,7 @@ function thirdPartyNoticesPlugin(): Plugin {
       this.emitFile({
         type: 'asset',
         fileName: 'THIRD_PARTY_NOTICES.txt',
-        source: `OpenConvert includes the following third-party software.\n\n${body}`,
+        source: `OpenConverter includes the following third-party software. The exceljs browser build also bundles saxes and xmlchars (ISC, by Louis-Dominique Dubeau) and other small MIT-licensed packages; their notices are kept in the code.\n\n${body}`,
       });
     },
   };

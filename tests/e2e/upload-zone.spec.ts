@@ -5,11 +5,11 @@ import { addFiles, makeImage, open } from './helpers';
 
 test('empty state: centred upload zone with the real formats and limits, no settings yet', async ({ page }) => {
   await open(page);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Convert your images. Simply.');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Convert your files. Simply.');
   const zone = page.getByTestId('dropzone');
-  await expect(zone).toContainText('Drop your images here');
+  await expect(zone).toContainText('Drop your files here');
   await expect(zone).toContainText('or browse files');
-  await expect(zone).toContainText('PNG, JPEG, WebP or BMP · up to 100 MB per file · up to 200 files');
+  await expect(zone).toContainText('Images (PNG, JPEG, WebP, BMP), text, Markdown, JSON, CSV or Excel · up to 100 MB per file · up to 200 files');
   await expect(page.getByText('Your files are converted on this device and never uploaded.')).toBeVisible();
   await expect(page.getByTestId('target')).toBeHidden();
   await expect(page.getByTestId('file-list')).toBeHidden();

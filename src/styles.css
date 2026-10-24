@@ -805,12 +805,38 @@ body.has-files .dz-status {
   background: repeating-conic-gradient(var(--checker) 0 25%, var(--bg) 0 50%) 0 0 / 10px 10px;
 }
 
+/* Per-file output choice for documents. */
+.row-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 2px;
+}
+
+.row-target[hidden] {
+  display: none;
+}
+
+.row-target-label {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.select-small {
+  width: auto;
+  min-width: 128px;
+  height: 32px;
+  padding: 0 32px 0 10px;
+  font-size: 0.875rem;
+}
+
 .thumb-doc {
   display: grid;
   place-items: center;
   background: var(--subtle);
   color: var(--text);
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -1210,6 +1236,25 @@ body.has-files .dz-status {
   font-size: 0.875rem;
 }
 
+/* Text previews: monospace, scrollable, never rendered as HTML. */
+.pd-textwrap {
+  display: block;
+  background: var(--subtle);
+}
+
+.pd-text {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  color: var(--text);
+  font: 0.8125rem/1.55 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 .pd-doc {
   display: flex;
   flex-direction: column;
@@ -1222,7 +1267,8 @@ body.has-files .dz-status {
 .pd-doc-badge {
   display: grid;
   place-items: center;
-  width: 64px;
+  min-width: 64px;
+  padding: 0 8px;
   height: 80px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);

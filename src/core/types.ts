@@ -24,6 +24,10 @@ export interface FormatInfo {
   lossy: boolean;
   /** Whether the format can store an alpha channel. */
   supportsAlpha: boolean;
+  /** False for formats that are recognised but can't be converted from yet. Default true. */
+  input?: boolean;
+  /** Shown when a file of this format is rejected as input. */
+  inputMessage?: string;
 }
 
 /** Colour treatment applied before encoding. */
@@ -76,6 +80,8 @@ export interface Converter {
   category: FormatCategory;
   /** Output format ids this converter can produce from `fromId`, in this browser. */
   outputsFor(fromId: string): string[];
+  /** Why `fromId` can't be converted here, when the format is known but unavailable (e.g. offline). */
+  unavailableReason?(fromId: string): string | undefined;
   convert(
     input: ConversionInput,
     toId: string,

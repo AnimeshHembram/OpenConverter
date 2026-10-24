@@ -6,6 +6,8 @@
 export interface SniffResult {
   /** Supported format id, if the bytes match one. */
   formatId: string | null;
+  /** A container that needs a closer look: ZIP (Office, OpenDocument) or OLE2 (Office 97–2003). */
+  container?: 'zip' | 'ole';
   /** Human name for recognised-but-unsupported formats (for clearer errors). */
   knownUnsupported?: string;
 }
@@ -30,6 +32,11 @@ export function sniff(bytes: Uint8Array): SniffResult {
     if ([12, 40, 52, 56, 64, 108, 124].includes(dib)) return { formatId: 'bmp' };
   }
   if (b.length >= 5 && ascii(b, 0, 5) === '%PDF-') return { formatId: 'pdf' };
+
+  if (b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 3 && b[3] === 4) return { formatId: null, container: 'zip' };
+  if (b.length >= 8 && b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0 && b[4] === 0xa1 && b[5] === 0xb1 && b[6] === 0x1a && b[7] === 0xe1) {
+    return { formatId: null, container: 'ole' };
+  }
 
   // Recognised formats we do not (yet) convert, so the error can name them.
   if (b.length >= 6 && ascii(b, 0, 3) === 'GIF') return { formatId: null, knownUnsupported: 'GIF' };

@@ -9,7 +9,7 @@ import { findFormatById } from '../core/formats';
 import { inspectFile } from '../core/inspect';
 import { MAX_BATCH_FILES } from '../core/limits';
 import { ObjectUrlPool, downloadBlob } from '../core/objectUrls';
-import { findConverter, outputsFor } from '../core/registry';
+import { findConverter, outputsFor, unavailableReason } from '../core/registry';
 import type { ConversionResult, ConvertOptions, FormatInfo } from '../core/types';
 import { createZip } from '../core/zip';
 
@@ -24,6 +24,10 @@ export interface FileItem {
   format?: FormatInfo;
   width?: number;
   height?: number;
+  /** Short description for documents, e.g. "120 rows × 5 columns". */
+  details?: string;
+  /** Chosen output format for a document (images use the shared settings). */
+  target?: string;
   /** Warnings about the input file itself. */
   inputWarnings: string[];
   error?: string;
@@ -62,8 +66,16 @@ export const settingsKey = (s: Settings) => {
   ].join('|');
 };
 
+export const isImage = (item: FileItem) => item.format?.category === 'image';
+
+/** The output format a file will be converted to. */
+export const targetOf = (item: FileItem, settings: Settings) => (isImage(item) ? settings.target : item.target);
+
+/** What a file's result depends on: the shared image settings, or a document's own target. */
+export const itemKey = (item: FileItem, settings: Settings) => (isImage(item) ? settingsKey(settings) : `doc|${item.target ?? ''}`);
+
 export function isStale(item: FileItem, settings: Settings): boolean {
-  return !!item.result && item.result.settingsKey !== settingsKey(settings);
+  return !!item.result && item.result.settingsKey !== itemKey(item, settings);
 }
 
 export class Controller {
@@ -109,6 +121,17 @@ export class Controller {
     return outputsFor('png');
   }
 
+  /** Output formats for one file (documents choose per file). */
+  targetsFor(id: string): string[] {
+    const f = this.item(id)?.format;
+    return f ? outputsFor(f.id) : [];
+  }
+
+  setTarget(id: string, target: string): void {
+    if (!this.targetsFor(id).includes(target)) return;
+    this.updateItem(id, { target });
+  }
+
   setSettings(patch: Partial<Settings>): void {
     this.set({ settings: { ...this.state.settings, ...patch } });
   }
@@ -143,9 +166,16 @@ export class Controller {
         try {
           const info = await inspectFile(it.file);
           if (!this.item(it.id)) return; // removed meanwhile
+          const outputs = outputsFor(info.format.id);
+          if (!outputs.length) {
+            throw new ConversionError('NO_CONVERTER', unavailableReason(info.format.id) ?? `${info.format.label} files can't be converted here.`);
+          }
           this.updateItem(it.id, {
             status: 'ready',
             format: info.format,
+            details: info.details,
+            // Documents start with their most useful output; the row lets the user change it.
+            target: info.format.category === 'image' ? undefined : outputs[0],
             width: info.dimensions?.width,
             height: info.dimensions?.height,
             inputWarnings: info.warnings,
@@ -193,9 +223,8 @@ export class Controller {
   async convertAll(): Promise<void> {
     if (this.state.running) return;
     const { settings } = this.state;
-    const key = settingsKey(settings);
     const todo = this.state.items.filter(
-      (i) => i.format && (i.status === 'ready' || (i.status === 'error' && i.format) || (i.status === 'done' && i.result?.settingsKey !== key)),
+      (i) => i.format && (i.status === 'ready' || (i.status === 'error' && i.format) || (i.status === 'done' && isStale(i, settings))),
     );
     if (!todo.length) return;
 
@@ -214,11 +243,15 @@ export class Controller {
       const ctrl = new AbortController();
       this.current = { id: it.id, ctrl };
       const signal = ctrl.signal;
+      // Read the item afresh: a document's target may have changed while queued.
+      const current = this.item(it.id) ?? it;
+      const target = targetOf(current, settings)!;
+      const key = itemKey(current, settings);
       try {
-        const converter = findConverter(it.format!.id, settings.target);
+        const converter = findConverter(it.format!.id, target);
         const result = await converter.convert(
           { file: it.file, name: it.name, format: it.format! },
-          settings.target,
+          target,
           settings,
           {
             signal,
@@ -283,8 +316,10 @@ export class Controller {
     try {
       const names = dedupeNames(done.map((i) => i.result!.fileName));
       const zip = await createZip(done.map((i, n) => ({ name: names[n]!, data: i.result!.blob })));
-      const fmt = findFormatById(this.state.settings.target);
-      downloadBlob(zip, `openconverter-${done.length}-${fmt?.extensions[0] ?? 'files'}.zip`);
+      // Name the ZIP after the output format when every file shares one.
+      const exts = new Set(done.map((i) => i.result!.format.extensions[0]));
+      const ext = exts.size === 1 ? [...exts][0]! : 'files';
+      downloadBlob(zip, `openconverter-${done.length}-${ext}.zip`);
     } catch (e) {
       this.set({ notice: { kind: 'error', text: e instanceof ConversionError || e instanceof Error ? e.message : String(e) } });
     }

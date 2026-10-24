@@ -15,6 +15,15 @@ export function outputsFor(fromId: string): string[] {
   return [...out];
 }
 
+/** A user-facing reason why nothing can convert `fromId` here, if a converter knows one. */
+export function unavailableReason(fromId: string): string | undefined {
+  for (const c of converters) {
+    const r = c.unavailableReason?.(fromId);
+    if (r) return r;
+  }
+  return undefined;
+}
+
 export function findConverter(fromId: string, toId: string): Converter {
   const c = converters.find((x) => x.outputsFor(fromId).includes(toId));
   if (!c) throw new ConversionError('NO_CONVERTER', `Converting ${fromId} to ${toId} isn't available in this browser.`);

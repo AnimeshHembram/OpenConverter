@@ -14,6 +14,10 @@
 export const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per file
 export const MAX_BATCH_FILES = 200;
 export const MAX_DIMENSION = 16_384;
+/** Text and data files are parsed whole in memory, which needs several times their size. */
+export const MAX_TEXT_BYTES = 50 * 1024 * 1024;
+/** Spreadsheets expand a lot when loaded (every cell becomes an object). */
+export const MAX_SPREADSHEET_BYTES = 25 * 1024 * 1024;
 
 export interface DeviceProfile {
   /** iPhone, iPad (including iPadOS in desktop mode). */

@@ -97,7 +97,7 @@ test('an image is saved as a one-page PDF that embeds the picture at its full si
   expect(near(rgba[1]!, [220, 30, 30, 255], 12)).toBe(true);
 
   // The row shows a document tile, and the preview offers the browser's PDF viewer.
-  await expect(card.locator('.thumb-doc')).toBeVisible();
+  await expect(card.locator('.preview-after .thumb-doc')).toHaveText('PDF');
   await expect(card.getByRole('img', { name: /^Converted/ })).toHaveCount(0);
   await card.getByTestId('preview').click();
   const dialog = page.getByTestId('preview-dialog');

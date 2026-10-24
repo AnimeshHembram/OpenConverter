@@ -53,8 +53,79 @@ export const FORMATS: readonly FormatInfo[] = [
     category: 'document',
     lossy: true, // the page image is stored as JPEG, so quality applies
     supportsAlpha: false,
+    input: false,
+    inputMessage: "PDF files can't be converted yet. OpenConverter can save images as PDFs, but not the other way round.",
+  },
+  // ---- Text and data -------------------------------------------------------
+  { id: 'txt', label: 'Text', mime: 'text/plain', extensions: ['txt', 'text', 'log'], category: 'document', lossy: false, supportsAlpha: false },
+  {
+    id: 'md',
+    label: 'Markdown',
+    mime: 'text/markdown',
+    altMimes: ['text/x-markdown'],
+    extensions: ['md', 'markdown'],
+    category: 'document',
+    lossy: false,
+    supportsAlpha: false,
+  },
+  { id: 'json', label: 'JSON', mime: 'application/json', extensions: ['json'], category: 'document', lossy: false, supportsAlpha: false },
+  {
+    id: 'csv',
+    label: 'CSV',
+    mime: 'text/csv',
+    altMimes: ['text/tab-separated-values', 'application/vnd.ms-excel'],
+    extensions: ['csv', 'tsv'],
+    category: 'document',
+    lossy: false,
+    supportsAlpha: false,
+  },
+  {
+    id: 'html',
+    label: 'HTML',
+    mime: 'text/html',
+    extensions: ['html', 'htm'],
+    category: 'document',
+    lossy: false,
+    supportsAlpha: false,
+    input: false,
+    inputMessage: "HTML files can't be converted yet.",
+  },
+  {
+    id: 'xlsx',
+    label: 'Excel',
+    mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    extensions: ['xlsx'],
+    category: 'document',
+    lossy: false,
+    supportsAlpha: false,
+  },
+  // ---- Office documents, recognised but not converted yet --------------------
+  {
+    id: 'docx',
+    label: 'Word',
+    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    extensions: ['docx'],
+    category: 'document',
+    lossy: false,
+    supportsAlpha: false,
+    input: false,
+    inputMessage: "Word documents can't be converted yet.",
+  },
+  {
+    id: 'pptx',
+    label: 'PowerPoint',
+    mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    extensions: ['pptx'],
+    category: 'document',
+    lossy: false,
+    supportsAlpha: false,
+    input: false,
+    inputMessage: "PowerPoint presentations can't be converted yet.",
   },
 ];
+
+/** Formats that can be selected as input, i.e. everything the file picker should offer. */
+export const INPUT_EXTENSIONS = ['xls', 'ods', 'doc', 'ppt', 'odt', 'odp'];
 
 const byId = new Map(FORMATS.map((f) => [f.id, f]));
 
@@ -85,12 +156,16 @@ export function extensionOf(fileName: string): string {
   return dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
 }
 
-/** Value for <input accept>: every extension and MIME type we can read. */
-export function acceptAttribute(category: FormatInfo['category']): string {
+/**
+ * Value for <input accept>: every format we recognise, including ones that
+ * are rejected with advice (so the picker doesn't hide them).
+ */
+export function acceptAttribute(category?: FormatInfo['category']): string {
   const parts: string[] = [];
   for (const f of FORMATS) {
-    if (f.category !== category) continue;
+    if (category && f.category !== category) continue;
     parts.push(f.mime, ...(f.altMimes ?? []), ...f.extensions.map((e) => `.${e}`));
   }
-  return parts.join(',');
+  if (!category) parts.push(...INPUT_EXTENSIONS.map((e) => `.${e}`));
+  return [...new Set(parts)].join(',');
 }

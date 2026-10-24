@@ -2,7 +2,9 @@
 
 Free, open-source file conversion that runs **entirely in your browser**. No account, no uploads, no server, no tracking.
 
-**Current scope: images.** Convert between PNG, JPEG, WebP and BMP, save images as PDF, make them grayscale or black and white, remove plain backgrounds and compress to a size limit, one file or a batch. Document conversion is planned (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#phase-2-boundaries)).
+**Level 1, images:** convert between PNG, JPEG, WebP and BMP, save images as PDF, make them grayscale or black and white, remove plain backgrounds and compress to a size limit, one file or a batch.
+
+**Level 2, documents (stage 1 of 4 done):** text, Markdown, JSON, CSV and Excel. PDF, Word and PowerPoint are next (see [Documents](#documents)).
 
 Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/OpenConverter/`
 
@@ -21,6 +23,25 @@ Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/Open
 - Settings are locked while a batch converts, so every result matches what's on screen.
 - Batch conversion with progress, cancel and per-file remove. "Download all" gives a ZIP with unique file names.
 - Every output is checked before it's offered: it must be non-empty, have the right file signature, the right MIME type and a matching extension. A browser that silently produces the wrong format gets an error instead of a mislabelled file.
+
+## Documents
+
+Every file is identified from its content, not just its name: JSON by parsing it, CSV by a consistent delimiter (comma, semicolon, tab or pipe), Markdown by its syntax, and Office files by the parts inside them. A `.txt` file holding JSON is treated as JSON, and the app says so. Each document row has its own **Convert to** choice; images keep the shared settings.
+
+| From | To |
+|---|---|
+| Text (.txt) | Markdown (escaped so it reads the same), HTML |
+| Markdown | HTML (a complete page), plain text |
+| JSON | CSV, Excel, Markdown table |
+| CSV / TSV | Excel, JSON, Markdown table, HTML table |
+| Excel (.xlsx) | CSV, JSON, Markdown, HTML |
+
+- **Excel:** `.xlsx` files open and edit in Microsoft Excel, Google Sheets, Numbers and LibreOffice. The header row is bold and frozen, and columns are sized to their content. Formulas are read as their last calculated values. A workbook with several sheets becomes one JSON object (one list per sheet), or Markdown/HTML with a section per sheet; CSV holds one table, so only the first sheet is used and the app says so.
+- **Types:** CSV values that are plain numbers become numbers, and true/false become booleans. Numbers with leading zeros (phone numbers, PIN codes, IDs) and very long digit strings stay text, so nothing is mangled. Text starting with `=` is stored as text in Excel, never as a formula.
+- **CSV output** has a UTF-8 byte-order mark so Excel shows accents and non-Latin scripts correctly.
+- **Previews:** text outputs are shown as source text in the preview, never rendered as HTML.
+- **Not supported yet:** PDF, Word (.docx) and PowerPoint (.pptx) input (coming in the next stages); old Office 97–2003 files (.doc, .xls, .ppt) and OpenDocument (.ods, .odt, .odp), which get advice to re-save in the current format; HTML input. Limits: 50 MB for text and data files, 25 MB for workbooks.
+- **Standalone file:** opened from disk, it converts images, text, Markdown, JSON and CSV. Excel needs the website or `npm start`, because the Excel library is a separate file that browsers won't load from disk.
 
 ## Format behaviour and known limitations
 
@@ -137,4 +158,4 @@ docs/ARCHITECTURE.md
 
 [MIT](LICENSE).
 
-The published site includes third-party code: `@jsquash/webp` (Apache-2.0), libwebp (BSD-3-Clause) and `wasm-feature-detect` (Apache-2.0). Their licence texts are generated into `THIRD_PARTY_NOTICES.txt` at build time and linked from the site footer.
+The published site includes third-party code: `@jsquash/webp` (Apache-2.0), libwebp (BSD-3-Clause), `wasm-feature-detect` (Apache-2.0), `marked` (MIT) and `exceljs` (MIT, which bundles JSZip, pako and other permissively licensed packages). Their licence texts are generated into `THIRD_PARTY_NOTICES.txt` at build time and linked from the site footer.

@@ -46,7 +46,7 @@ test('the skip link moves past the header to the converter', async ({ page }) =>
 
 test('controls have accessible names and a logical tab order', async ({ page }) => {
   await open(page);
-  await expect(page.getByLabel('Drop your images here')).toHaveAttribute('type', 'file');
+  await expect(page.getByLabel('Drop your files here')).toHaveAttribute('type', 'file');
   await expect(page.getByRole('switch', { name: 'Dark theme' })).toBeVisible();
   // Output settings appear once there is something to convert.
   await expect(page.getByTestId('target')).toBeHidden();

@@ -3,6 +3,7 @@ import { Controller } from './app/controller';
 import { registerConverter } from './core/registry';
 import { detectImageCapabilities } from './modules/image/capabilities';
 import { createImageConverter } from './modules/image/converter';
+import { createDocumentConverter } from './modules/document/converter';
 import { pixelPolicy } from './core/limits';
 import { initThemeSwitch } from './ui/theme';
 import { mountApp } from './ui/view';
@@ -20,8 +21,9 @@ async function start(): Promise<void> {
   const standalone = location.protocol === 'file:';
   const caps = await detectImageCapabilities(forceDisable, { allowWasm: !standalone });
   registerConverter(createImageConverter(caps));
-  // Phase 2: document converters register here, each lazily loading its
-  // libraries on first use so the image converter stays fast to load.
+  // Documents: text and data. Heavy libraries (Excel) load on first use, and
+  // can't load at all from disk, so the standalone file leaves them out.
+  registerConverter(createDocumentConverter({ spreadsheets: !standalone }));
 
   const controller = new Controller({
     target: caps.encoders.has('webp') ? 'webp' : 'jpeg',

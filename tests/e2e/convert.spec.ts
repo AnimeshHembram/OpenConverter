@@ -160,7 +160,7 @@ test('rejects unsupported and fake files with clear messages, and warns on wrong
   ]);
   const cards = page.getByTestId('file-card');
   await expect(cards.nth(0)).toHaveAttribute('data-status', 'error');
-  await expect(cards.nth(0)).toContainText("doesn't look like a PNG, JPEG, WebP or BMP");
+  await expect(cards.nth(0)).toContainText("doesn't look like a PNG image");
   await expect(cards.nth(1)).toContainText("GIF files aren't supported yet");
   await expect(cards.nth(2)).toContainText('named .jpg but is actually a PNG');
   await expect(page.getByTestId('convert')).toHaveText('Convert'); // only the valid one

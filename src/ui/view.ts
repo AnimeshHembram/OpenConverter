@@ -4,8 +4,9 @@
  * and type all come from tokens in styles.css. Every interactive element has
  * a stable `data-testid` used by the end-to-end tests.
  */
-import { isStale, settingsKey, type AppState, type Controller, type FileItem } from '../app/controller';
+import { isImage, isStale, itemKey, type AppState, type Controller, type FileItem } from '../app/controller';
 import { acceptAttribute, getFormat } from '../core/formats';
+import type { FormatInfo } from '../core/types';
 import { MAX_BATCH_FILES, MAX_FILE_BYTES, formatBytes } from '../core/limits';
 import type { ColourMode } from '../core/types';
 import type { ImageCapabilities } from '../modules/image/capabilities';
@@ -74,7 +75,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   const input = h('input', {
     type: 'file',
     multiple: true,
-    accept: acceptAttribute('image'),
+    accept: acceptAttribute(),
     class: 'visually-hidden',
     id: 'file-input',
     'aria-labelledby': 'dropzone-title',
@@ -89,13 +90,13 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     h(
       'span',
       { class: 'dz-text' },
-      h('span', { class: 'dz-title', id: 'dropzone-title', text: 'Drop your images here' }),
+      h('span', { class: 'dz-title', id: 'dropzone-title', text: 'Drop your files here' }),
       h('span', { class: 'dz-browse', text: 'or browse files' }),
     ),
     h('span', {
       class: 'dz-meta',
       id: 'dropzone-hint',
-      text: `PNG, JPEG, WebP or BMP · up to ${formatBytes(MAX_FILE_BYTES)} per file · up to ${MAX_BATCH_FILES} files · you can also paste`,
+      text: `Images (PNG, JPEG, WebP, BMP), text, Markdown, JSON, CSV or Excel · up to ${formatBytes(MAX_FILE_BYTES)} per file · up to ${MAX_BATCH_FILES} files · you can also paste`,
     }),
     zoneStatus,
   );
@@ -171,6 +172,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     targetSelect.append(h('option', { value: id, text: `${f.label}${via}` }));
   }
   targetSelect.addEventListener('change', () => c.setSettings({ target: targetSelect.value }));
+  const targetLabel = h('label', { for: 'target', class: 'field-label', text: 'Convert all to' });
 
   const quality = h('input', { type: 'range', id: 'quality', class: 'range', min: 1, max: 100, step: 1, 'data-testid': 'quality' });
   // A plain span, not <output>: <output> is an implicit live region and would
@@ -271,7 +273,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     h(
       'div',
       { class: 'settings', role: 'group', 'aria-label': 'Output settings' },
-      h('div', { class: 'field field-target' }, h('label', { for: 'target', class: 'field-label', text: 'Convert all to' }), targetSelect),
+      h('div', { class: 'field field-target' }, targetLabel, targetSelect),
       qualityField,
       maxField,
     ),
@@ -358,6 +360,12 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     const has = s.items.length > 0;
     document.body.classList.toggle('has-files', has);
     workspace.hidden = !has;
+    // Image settings only matter when there are images; documents choose per row.
+    const images = s.items.some((i) => isImage(i));
+    const documents = s.items.some((i) => i.format && !isImage(i));
+    settings.hidden = !images;
+    formatNote.hidden ||= !images;
+    targetLabel.textContent = documents ? 'Convert images to' : 'Convert all to';
     listTitle.textContent = `${s.items.length} ${s.items.length === 1 ? 'file' : 'files'}`;
     const converted = s.items.filter((i) => i.status === 'done' && !isStale(i, s.settings)).length;
     const failed = s.items.filter((i) => i.status === 'error').length;
@@ -369,7 +377,6 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     if (inspecting) zoneStatus.textContent = 'Checking files…';
     else if (!dropzone.classList.contains('is-error')) zoneStatus.textContent = '';
 
-    const key = settingsKey(s.settings);
     const pending = s.items.filter((i) => i.format && (i.status === 'ready' || i.status === 'error' || (i.status === 'done' && isStale(i, s.settings))));
     convertBtn.textContent = pending.length > 1 ? `Convert ${pending.length} files` : 'Convert';
     // While converting, Cancel takes Convert's place and downloads wait.
@@ -402,8 +409,9 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
         card = { el: refs.root, refs };
         cards.set(item.id, card);
       }
+      const key = `${itemKey(item, s.settings)}|${s.running}`;
       if (card.item !== item || card.key !== key) {
-        updateCard(card.refs, item, s);
+        updateCard(card.refs, item, s, c);
         card.item = item;
         card.key = key;
       }
@@ -427,11 +435,14 @@ interface CardRefs {
   root: HTMLLIElement;
   previews: HTMLElement;
   beforeImg: HTMLImageElement;
+  beforeDoc: HTMLElement;
   afterImg: HTMLImageElement;
   afterDoc: HTMLElement;
   afterFig: HTMLElement;
   name: HTMLElement;
   meta: HTMLElement;
+  targetField: HTMLElement;
+  targetSelect: HTMLSelectElement;
   status: HTMLElement;
   progress: HTMLProgressElement;
   messages: HTMLUListElement;
@@ -447,9 +458,11 @@ function createCard(
   openPreview: (id: string, opener: HTMLElement) => void,
 ): CardRefs {
   const beforeImg = h('img', { alt: '', class: 'thumb', decoding: 'async', loading: 'lazy' });
+  // Documents get a tile showing their type instead of a picture.
+  const beforeDoc = h('span', { class: 'thumb thumb-doc', 'aria-hidden': 'true' });
   const afterImg = h('img', { alt: '', class: 'thumb', decoding: 'async' });
-  // PDFs can't be shown in an <img>, so they get a document tile instead.
-  const afterDoc = h('span', { class: 'thumb thumb-doc', 'aria-hidden': 'true', text: 'PDF' });
+  // Results that aren't images (PDF, CSV, Excel…) get a tile too.
+  const afterDoc = h('span', { class: 'thumb thumb-doc', 'aria-hidden': 'true' });
   const afterFig = h(
     'figure',
     { class: 'preview preview-after' },
@@ -460,11 +473,15 @@ function createCard(
   const previews = h(
     'div',
     { class: 'previews' },
-    h('figure', { class: 'preview' }, beforeImg, h('figcaption', { class: 'visually-hidden', text: 'Before' })),
+    h('figure', { class: 'preview' }, beforeImg, beforeDoc, h('figcaption', { class: 'visually-hidden', text: 'Before' })),
     afterFig,
   );
   const name = h('p', { class: 'file-name' });
   const meta = h('p', { class: 'file-meta' });
+  // Each document chooses its own output; images follow the shared settings.
+  const targetSelect = h('select', { class: 'select select-small', id: `target-${id}`, 'data-testid': 'row-target' });
+  targetSelect.addEventListener('change', () => c.setTarget(id, targetSelect.value));
+  const targetField = h('div', { class: 'row-target' }, h('label', { for: `target-${id}`, class: 'row-target-label', text: 'Convert to' }), targetSelect);
   const status = h('p', { class: 'file-status', 'data-testid': 'status' });
   const progress = h('progress', { max: 1, value: 0, class: 'file-progress', 'data-testid': 'file-progress' });
   const messages = h('ul', { class: 'file-messages' });
@@ -492,22 +509,45 @@ function createCard(
     'li',
     { class: 'file-row', 'data-testid': 'file-card', 'data-id': id },
     previews,
-    h('div', { class: 'file-body' }, name, meta, status, progress, messages),
+    h('div', { class: 'file-body' }, name, meta, targetField, status, progress, messages),
     h('div', { class: 'file-actions' }, download, previewBtn, remove),
   );
-  return { root, previews, beforeImg, afterImg, afterDoc, afterFig, name, meta, status, progress, messages, previewBtn, download, remove };
+  return { root, previews, beforeImg, beforeDoc, afterImg, afterDoc, afterFig, name, meta, targetField, targetSelect, status, progress, messages, previewBtn, download, remove };
 }
 
-function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
+/** Short type label for document tiles: "CSV", "XLSX", "MD"… */
+const tileLabel = (f: FormatInfo) => f.extensions[0]!.toUpperCase();
+
+/** Text formats that can be previewed as text. */
+const TEXT_FORMATS = new Set(['txt', 'md', 'json', 'csv', 'html']);
+
+function updateCard(r: CardRefs, item: FileItem, s: AppState, c: Controller): void {
   r.root.dataset.status = item.status;
   r.name.textContent = item.name;
   r.name.title = item.name;
-  const parts = [item.format?.label, item.width && item.height ? `${item.width} × ${item.height}` : undefined, formatBytes(item.size)];
+  const parts = [item.format?.label, item.details ?? (item.width && item.height ? `${item.width} × ${item.height}` : undefined), formatBytes(item.size)];
   r.meta.textContent = parts.filter(Boolean).join(' · ');
 
-  if (item.previewUrl && r.beforeImg.getAttribute('src') !== item.previewUrl) {
+  const docIn = !!item.format && !isImage(item);
+  r.beforeImg.hidden = docIn;
+  r.beforeDoc.hidden = !docIn;
+  if (docIn) r.beforeDoc.textContent = tileLabel(item.format!);
+  else if (item.previewUrl && r.beforeImg.getAttribute('src') !== item.previewUrl) {
     r.beforeImg.src = item.previewUrl;
     r.beforeImg.alt = `Original: ${item.name}`;
+  }
+
+  // Per-file output choice, for documents only.
+  r.targetField.hidden = !docIn;
+  if (docIn) {
+    const targets = c.targetsFor(item.id);
+    if (r.targetSelect.dataset.options !== targets.join(',')) {
+      r.targetSelect.replaceChildren(...targets.map((t) => h('option', { value: t, text: getFormat(t).label })));
+      r.targetSelect.dataset.options = targets.join(',');
+    }
+    r.targetSelect.value = item.target ?? '';
+    r.targetSelect.disabled = s.running;
+    r.targetSelect.setAttribute('aria-label', `Convert ${item.name} to`);
   }
   r.previews.hidden = !item.previewUrl;
   r.root.classList.toggle('no-preview', !item.previewUrl);
@@ -515,10 +555,11 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
   const res = item.result;
   r.afterFig.hidden = !res;
   r.root.classList.toggle('has-result', !!res);
-  const isDoc = res?.format.id === 'pdf';
+  const isDoc = !!res && res.format.category !== 'image';
   r.afterImg.hidden = isDoc;
   r.afterDoc.hidden = !isDoc;
   if (res && isDoc) {
+    r.afterDoc.textContent = tileLabel(res.format);
     r.afterImg.removeAttribute('src');
   } else if (res && r.afterImg.getAttribute('src') !== res.url) {
     r.afterImg.src = res.url;
@@ -531,8 +572,10 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
   if (item.status === 'done' && res) {
     const delta = res.blob.size - item.size;
     const pct = Math.round((Math.abs(delta) / item.size) * 100);
-    statusText = `Converted to ${res.format.label} · ${formatBytes(res.blob.size)} (${delta <= 0 ? `${pct}% smaller` : `${pct}% larger`})`;
-    if (stale) statusText += ' · settings changed, convert again to update';
+    // Size change only means something between image formats; a CSV and a workbook aren't comparable.
+    const change = docIn ? '' : ` (${delta <= 0 ? `${pct}% smaller` : `${pct}% larger`})`;
+    statusText = `Converted to ${res.format.label} · ${formatBytes(res.blob.size)}${change}`;
+    if (stale) statusText += docIn ? ' · output changed, convert again to update' : ' · settings changed, convert again to update';
   }
   r.status.textContent = statusText;
   r.status.dataset.stale = String(stale);
@@ -598,23 +641,49 @@ function createPreviewDialog(c: Controller) {
     opener = null;
   });
 
-  const pane = (label: string, src: string | undefined, alt: string, caption: string, doc = false) =>
+  /** Text files are previewed as text: the first 20 KB, set with textContent (never parsed as HTML). */
+  const textPreview = (blob: Blob, label: string) => {
+    const pre = h('pre', { class: 'pd-text', tabindex: 0, 'aria-label': label, 'data-testid': 'text-preview' });
+    pre.textContent = 'Loading…';
+    const LIMIT = 20_000;
+    blob
+      .slice(0, LIMIT)
+      .arrayBuffer()
+      .then((buf) => {
+        const text = new TextDecoder().decode(buf);
+        pre.textContent = blob.size > LIMIT ? `${text}\n…` : text;
+      })
+      .catch(() => {
+        pre.textContent = "This file couldn't be previewed.";
+      });
+    return h('div', { class: 'pd-image pd-textwrap' }, pre);
+  };
+
+  const docTile = (format: FormatInfo, description: string, src?: string) =>
+    h(
+      'div',
+      { class: 'pd-image pd-empty pd-doc' },
+      h('span', { class: 'pd-doc-badge', 'aria-hidden': 'true', text: tileLabel(format) }),
+      h('span', { text: description }),
+      // The browser's own PDF viewer shows it; nothing leaves the device.
+      src ? h('a', { href: src, target: '_blank', rel: 'noopener', class: 'btn btn-small', 'data-testid': 'open-pdf' }, icon('open', 15), h('span', { text: 'Open PDF' })) : null,
+    );
+
+  /** Picture, text or a tile, depending on the format. */
+  const content = (blob: Blob, format: FormatInfo, src: string, alt: string) => {
+    if (format.category === 'image') return h('div', { class: 'pd-image' }, h('img', { src, alt, decoding: 'async' }));
+    if (TEXT_FORMATS.has(format.id)) return textPreview(blob, alt);
+    if (format.id === 'pdf') return docTile(format, 'One-page PDF document', src);
+    if (format.id === 'xlsx') return docTile(format, 'Excel workbook: open it in Excel, Google Sheets or Numbers');
+    return docTile(format, `${format.label} file`);
+  };
+
+  const pane = (label: string, caption: string, body: HTMLElement) =>
     h(
       'figure',
       { class: 'pd-pane' },
       h('figcaption', { class: 'pd-label' }, h('span', { text: label }), h('span', { class: 'pd-meta', text: caption })),
-      !src
-        ? h('div', { class: 'pd-image pd-empty', text: 'Not converted yet' })
-        : doc
-          ? h(
-              'div',
-              { class: 'pd-image pd-empty pd-doc' },
-              h('span', { class: 'pd-doc-badge', 'aria-hidden': 'true', text: 'PDF' }),
-              h('span', { text: 'One-page PDF document' }),
-              // The browser's own PDF viewer shows it; nothing leaves the device.
-              h('a', { href: src, target: '_blank', rel: 'noopener', class: 'btn btn-small', 'data-testid': 'open-pdf' }, icon('open', 15), h('span', { text: 'Open PDF' })),
-            )
-          : h('div', { class: 'pd-image' }, h('img', { src, alt, decoding: 'async' })),
+      body,
     );
 
   function render(item: FileItem) {
@@ -623,13 +692,15 @@ function createPreviewDialog(c: Controller) {
     const dims = item.width && item.height ? `${item.width} × ${item.height}` : '';
     const res = item.result;
     panes.replaceChildren(
-      pane('Original', item.previewUrl, `Original: ${item.name}`, [item.format?.label, dims, formatBytes(item.size)].filter(Boolean).join(' · ')),
+      pane(
+        'Original',
+        [item.format?.label, item.details ?? dims, formatBytes(item.size)].filter(Boolean).join(' · '),
+        content(item.file, item.format!, item.previewUrl!, `Original: ${item.name}`),
+      ),
       pane(
         'Converted',
-        res?.url,
-        res ? `Converted: ${res.fileName}` : '',
         res ? [res.format.label, res.width && res.height ? `${res.width} × ${res.height}` : '', formatBytes(res.blob.size)].filter(Boolean).join(' · ') : '',
-        res?.format.id === 'pdf',
+        res ? content(res.blob, res.format, res.url, `Converted: ${res.fileName}`) : h('div', { class: 'pd-image pd-empty', text: 'Not converted yet' }),
       ),
     );
     footer.replaceChildren();
