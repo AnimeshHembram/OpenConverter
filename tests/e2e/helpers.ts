@@ -104,6 +104,44 @@ export async function convertAndDownload(page: Page, cardIndex = 0) {
   return { name: download.suggestedFilename(), bytes: await readFile(path!), card };
 }
 
+/**
+ * Pause image decoding until the test releases it, so "while converting"
+ * steps don't depend on how fast the machine is. Wraps createImageBitmap,
+ * which the converter uses to decode PNG, JPEG and WebP input.
+ */
+export async function installDecodeGate(page: Page) {
+  await page.evaluate(() => {
+    const w = window as any;
+    const orig = w.createImageBitmap.bind(window);
+    w.__gate = { open: true, waiting: 0, promise: Promise.resolve(), release: () => {} };
+    w.createImageBitmap = async (...args: unknown[]) => {
+      const g = w.__gate;
+      if (!g.open) {
+        g.waiting++;
+        await g.promise;
+        g.waiting--;
+      }
+      return orig(...args);
+    };
+  });
+  return {
+    close: () =>
+      page.evaluate(() => {
+        const g = (window as any).__gate;
+        g.open = false;
+        g.promise = new Promise<void>((r) => (g.release = r));
+      }),
+    /** Resolves once a decode is paused at the gate. */
+    blocked: () => page.waitForFunction(() => (window as any).__gate.waiting > 0),
+    open: () =>
+      page.evaluate(() => {
+        const g = (window as any).__gate;
+        g.open = true;
+        g.release();
+      }),
+  };
+}
+
 /** Read one pixel from a BMP file's bytes (24- or 32-bit, bottom-up). Returns RGBA. */
 export function bmpPixel(bytes: Buffer, x: number, y: number): number[] {
   const offset = bytes.readUInt32LE(10);

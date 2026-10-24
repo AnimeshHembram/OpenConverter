@@ -93,8 +93,13 @@ test('removing a file moves focus to the next Remove button, and Clear returns f
 });
 
 /** Dispatch a real drop/paste event carrying files built in the page. */
-async function dispatchFiles(page: Page, kind: 'drop' | 'paste', files: { name: string; type: string; b64: string }[]) {
-  await page.evaluate(({ kind, files }) => {
+/**
+ * Dispatch a real drop/paste event carrying files built in the page.
+ * Returns false if this engine strips files from script-created events
+ * (then the behaviour can only be checked by hand).
+ */
+async function dispatchFiles(page: Page, kind: 'drop' | 'paste', files: { name: string; type: string; b64: string }[]): Promise<boolean> {
+  return page.evaluate(({ kind, files }) => {
     const dt = new DataTransfer();
     for (const f of files) {
       const bin = atob(f.b64);
@@ -105,20 +110,27 @@ async function dispatchFiles(page: Page, kind: 'drop' | 'paste', files: { name: 
       const zone = document.querySelector('[data-testid=dropzone]')!;
       zone.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
       zone.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
-      zone.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
-    } else {
-      document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      const drop = new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true });
+      const carried = (drop.dataTransfer?.files.length ?? 0) > 0;
+      zone.dispatchEvent(drop);
+      return carried;
     }
+    const paste = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+    const data = paste.clipboardData;
+    const carried = (data?.files.length ?? 0) > 0 || [...(data?.items ?? [])].some((i) => i.kind === 'file');
+    document.dispatchEvent(paste);
+    return carried;
   }, { kind, files });
 }
 
 test('files can be added by drag-and-drop', async ({ page }) => {
   await open(page);
   const png = await makeImage(page, { mime: 'image/png', width: 10, height: 6 });
-  await dispatchFiles(page, 'drop', [
+  const carried = await dispatchFiles(page, 'drop', [
     { name: 'dropped.png', type: 'image/png', b64: png.toString('base64') },
     { name: 'second.png', type: 'image/png', b64: png.toString('base64') },
   ]);
+  test.skip(!carried, 'This engine strips files from script-created drag events; check drag-and-drop by hand.');
   await expect(page.getByTestId('file-card')).toHaveCount(2);
   await expect(page.getByTestId('file-card').first()).toContainText('PNG · 10 × 6');
   await expect(page.getByTestId('dropzone')).not.toHaveClass(/is-dragover/);
@@ -127,7 +139,8 @@ test('files can be added by drag-and-drop', async ({ page }) => {
 test('files can be added by pasting', async ({ page }) => {
   await open(page);
   const jpg = await makeImage(page, { mime: 'image/jpeg', width: 12, height: 9 });
-  await dispatchFiles(page, 'paste', [{ name: 'image.jpg', type: 'image/jpeg', b64: jpg.toString('base64') }]);
+  const carried = await dispatchFiles(page, 'paste', [{ name: 'image.jpg', type: 'image/jpeg', b64: jpg.toString('base64') }]);
+  test.skip(!carried, 'This engine strips files from script-created paste events; check pasting by hand.');
   await expect(page.getByTestId('file-card')).toHaveCount(1);
   await expect(page.getByTestId('file-card').first()).toContainText('JPEG · 12 × 9');
 });

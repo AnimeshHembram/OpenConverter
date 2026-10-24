@@ -89,7 +89,13 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   // A file dropped beside the drop zone would otherwise navigate away.
   for (const t of ['dragover', 'drop'] as const) window.addEventListener(t, (e) => e.preventDefault());
   window.addEventListener('paste', (e) => {
-    const files = [...(e.clipboardData?.files ?? [])];
+    // Some browsers expose pasted images only through `items` (e.g. a
+    // screenshot copied to the clipboard), others through `files`.
+    const data = e.clipboardData;
+    let files = [...(data?.files ?? [])];
+    if (!files.length && data?.items) {
+      files = [...data.items].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter((f): f is File => !!f);
+    }
     if (files.length) void c.addFiles(files);
   });
 

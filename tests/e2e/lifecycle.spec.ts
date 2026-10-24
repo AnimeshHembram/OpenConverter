@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { addFiles, makeImage, open } from './helpers';
+import { addFiles, installDecodeGate, makeImage, open } from './helpers';
 
 /**
  * Lifecycle and resource-management tests: device pixel limits, page
@@ -64,42 +64,24 @@ test('previews and results survive the page being hidden and restored (back/forw
   expect(dl.suggestedFilename()).toBe('keep.jpg');
 });
 
-async function makeLargeNoisePng(page: Page, w: number, h: number): Promise<Buffer> {
-  const arr = await page.evaluate(async ({ w, h }) => {
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    const g = c.getContext('2d')!;
-    const d = g.createImageData(w, h);
-    const u32 = new Uint32Array(d.data.buffer);
-    let x = 12345;
-    for (let i = 0; i < u32.length; i++) { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; u32[i] = (x | 0xff000000) >>> 0; }
-    g.putImageData(d, 0, 0);
-    const b: Blob = await new Promise((r) => c.toBlob((v) => r(v!), 'image/png'));
-    c.width = c.height = 0;
-    const bin = new Uint8Array(await b.arrayBuffer());
-    let s = '';
-    for (let i = 0; i < bin.length; i += 0x8000) s += String.fromCharCode(...bin.subarray(i, i + 0x8000));
-    return btoa(s);
-  }, { w, h });
-  return Buffer.from(arr, 'base64');
-}
-
 test('removing a file while it is converting drops it cleanly and the batch continues', async ({ page }) => {
-  test.slow();
   const errors = await open(page);
-  const big = await makeLargeNoisePng(page, 2500, 2000);
+  const png = await makeImage(page, { mime: 'image/png', width: 300, height: 200 });
   await addFiles(page, [
-    { name: 'one.png', mimeType: 'image/png', buffer: big },
-    { name: 'two.png', mimeType: 'image/png', buffer: big },
+    { name: 'one.png', mimeType: 'image/png', buffer: png },
+    { name: 'two.png', mimeType: 'image/png', buffer: png },
   ]);
+  const gate = await installDecodeGate(page);
   await page.getByTestId('target').selectOption('bmp');
+  await gate.close();
   await page.getByTestId('convert').click();
+  await gate.blocked(); // "one.png" is now mid-conversion, paused in decoding
   const first = page.getByTestId('file-card').first();
   await expect(first).toHaveAttribute('data-status', 'converting');
   await first.getByTestId('remove').click();
   await expect(page.getByTestId('file-card')).toHaveCount(1);
-  await expect(page.getByTestId('file-card').first()).toHaveAttribute('data-status', 'done', { timeout: 60_000 });
+  await gate.open();
+  await expect(page.getByTestId('file-card').first()).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
   await expect(page.getByTestId('file-card').first()).toContainText('two.png');
   await expect(page.getByTestId('cancel')).toBeHidden();
   expect(await page.evaluate(() => (window as any).openconvert.controller.liveObjectUrls)).toBe(2);
@@ -107,17 +89,20 @@ test('removing a file while it is converting drops it cleanly and the batch cont
 });
 
 test('cancel stops the batch: queued files return to ready and nothing is marked as failed', async ({ page }) => {
-  test.slow();
   await open(page);
-  const big = await makeLargeNoisePng(page, 2500, 2000);
-  await addFiles(page, ['a', 'b', 'c'].map((n) => ({ name: `${n}.png`, mimeType: 'image/png', buffer: big })));
+  const png = await makeImage(page, { mime: 'image/png', width: 300, height: 200 });
+  await addFiles(page, ['a', 'b', 'c'].map((n) => ({ name: `${n}.png`, mimeType: 'image/png', buffer: png })));
+  const gate = await installDecodeGate(page);
   await page.getByTestId('target').selectOption('bmp');
+  await gate.close();
   await page.getByTestId('convert').click();
+  await gate.blocked();
   await expect(page.getByTestId('file-card').first()).toHaveAttribute('data-status', 'converting');
   await page.getByTestId('cancel').click();
-  await expect(page.getByTestId('notice')).toContainText('Conversion cancelled.', { timeout: 60_000 });
+  await gate.open();
+  await expect(page.getByTestId('notice')).toHaveText('Conversion cancelled. 0 files converted.');
   await expect(page.locator('[data-status=error]')).toHaveCount(0);
-  await expect(page.locator('[data-status=ready]')).not.toHaveCount(0);
+  await expect(page.locator('[data-status=ready]')).toHaveCount(3);
   await expect(page.getByTestId('convert')).toBeEnabled();
 });
 
@@ -157,11 +142,10 @@ async function instrument(page: Page) {
 }
 
 test('bitmaps and canvases are released after success, failure and cancellation', async ({ page }) => {
-  test.slow();
   await open(page, '?noNative=webp');
   const small = await makeImage(page, { mime: 'image/png', width: 64, height: 64, transparentHalf: true });
-  const big = await makeLargeNoisePng(page, 2500, 2000);
   const res = await instrument(page);
+  const gate = await installDecodeGate(page); // wraps the instrumented decoder
   await res.arm();
 
   // Success: PNG → JPEG (exact transparency scan) and → BMP.
@@ -179,12 +163,14 @@ test('bitmaps and canvases are released after success, failure and cancellation'
   await page.unroute('**/*.wasm');
   // Cancellation mid-batch.
   await page.getByTestId('clear').click();
-  await addFiles(page, ['x', 'y'].map((n) => ({ name: `${n}.png`, mimeType: 'image/png', buffer: big })));
+  await addFiles(page, ['x', 'y'].map((n) => ({ name: `${n}.png`, mimeType: 'image/png', buffer: small })));
   await page.getByTestId('target').selectOption('bmp');
+  await gate.close();
   await page.getByTestId('convert').click();
-  await expect(page.getByTestId('file-card').first()).toHaveAttribute('data-status', 'converting');
+  await gate.blocked();
   await page.getByTestId('cancel').click();
-  await expect(page.getByTestId('notice')).toContainText('Conversion cancelled.', { timeout: 60_000 });
+  await gate.open();
+  await expect(page.getByTestId('notice')).toHaveText('Conversion cancelled. 0 files converted.');
 
   const r = await res.report();
   expect(r.canvases).toBeGreaterThan(0);
