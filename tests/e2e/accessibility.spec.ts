@@ -44,7 +44,7 @@ test('the skip link moves past the header to the converter', async ({ page }) =>
   await expect(page.getByRole('link', { name: 'Skip to converter' })).toHaveAttribute('href', '#main');
 });
 
-test('controls have accessible names and a logical tab order', async ({ page }) => {
+test('controls have accessible names and a logical tab order', async ({ page, browserName }) => {
   await open(page);
   await expect(page.getByLabel('Drop your files here')).toHaveAttribute('type', 'file');
   await expect(page.getByRole('switch', { name: 'Dark theme' })).toBeVisible();
@@ -56,7 +56,8 @@ test('controls have accessible names and a logical tab order', async ({ page }) 
   await expect(page.getByRole('slider', { name: /Quality/ })).toBeVisible();
   await page.getByTestId('target').selectOption('jpeg');
   // Colour inputs have no implicit ARIA role; check the label association.
-  await expect(page.getByLabel('Fill for transparent areas')).toHaveAttribute('type', 'color');
+  await expect(page.getByLabel('Fill for transparent areas', { exact: true })).toHaveAttribute('type', 'color');
+  await expect(page.getByRole('textbox', { name: 'Fill for transparent areas, hex code' })).toHaveValue('#ffffff');
 
   await page.getByTestId('file-input').focus();
   await expect(page.getByRole('textbox', { name: 'Compress to under' })).toBeVisible();
@@ -71,7 +72,21 @@ test('controls have accessible names and a logical tab order', async ({ page }) 
   expect(await tabTo(page, 'max-size-unit')).toBe(1);
   expect(await tabTo(page, 'colour')).toBe(1);
   expect(await tabTo(page, 'remove-bg')).toBe(1);
-  expect(await tabTo(page, 'background')).toBe(1);
+  // The fill colour must be reachable by keyboard in every engine. WebKit
+  // leaves <input type="color"> out of the Tab order, so the hex box is the
+  // keyboard route there; elsewhere the swatch comes first.
+  if (browserName !== 'webkit') expect(await tabTo(page, 'background')).toBe(1);
+  expect(await tabTo(page, 'background-hex')).toBe(1);
+  // …and it works from the keyboard: a hex code updates the swatch and the setting.
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('#0F0');
+  await expect(page.getByTestId('background')).toHaveValue('#00ff00');
+  expect(await page.evaluate(() => (window as any).openconvert.controller.snapshot.settings.background)).toBe('#00ff00');
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('nope');
+  await expect(page.getByTestId('background-hex')).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByText('Use a hex code like #ffffff')).toBeVisible();
+  await expect(page.getByTestId('background')).toHaveValue('#00ff00'); // unchanged by invalid input
   await page.getByTestId('remove-bg').focus();
   // The tolerance slider appears (and joins the tab order) only when needed.
   await expect(page.getByTestId('bg-tolerance')).toBeHidden();

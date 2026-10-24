@@ -187,13 +187,40 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   );
 
   const bg = h('input', { type: 'color', id: 'background', class: 'color', 'data-testid': 'background' });
-  const bgLabel = h('label', { for: 'background', class: 'field-label', text: 'Fill for transparent areas' });
+  const bgLabel = h('label', { for: 'background', class: 'field-label', id: 'background-label', text: 'Fill for transparent areas' });
   bg.addEventListener('input', () => c.setSettings({ background: bg.value }));
+  // WebKit (Safari) leaves colour inputs out of the Tab order, so keyboard
+  // users there couldn't reach the swatch. The hex box is always reachable
+  // and doubles as a precise way to enter a colour.
+  const bgHex = h('input', {
+    type: 'text',
+    id: 'background-hex',
+    class: 'text-input hex-input',
+    spellcheck: 'false',
+    autocomplete: 'off',
+    maxlength: 7,
+    'aria-describedby': 'background-hex-hint',
+    'data-testid': 'background-hex',
+  });
+  const bgHexHint = h('span', { class: 'field-hint', id: 'background-hex-hint' });
+  bgHex.addEventListener('input', () => {
+    const hex = parseHexColour(bgHex.value);
+    bgHex.setAttribute('aria-invalid', String(hex === null));
+    bgHexHint.textContent = hex === null ? 'Use a hex code like #ffffff' : '';
+    if (hex) c.setSettings({ background: hex });
+  });
+  bgHex.addEventListener('blur', () => {
+    // Settle on the colour actually in use (e.g. "#FFF" becomes "#ffffff").
+    bgHex.value = c.snapshot.settings.background;
+    bgHex.setAttribute('aria-invalid', 'false');
+    bgHexHint.textContent = '';
+  });
   const bgField = h(
     'div',
     { class: 'field field-color' },
     bgLabel,
-    bg,
+    h('div', { class: 'input-group colour-group' }, bg, bgHex),
+    bgHexHint,
   );
 
   // Compress: an optional size limit for lossy outputs. Quality is lowered
@@ -337,15 +364,17 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     qualityField.hidden = !target.lossy;
     maxField.hidden = !target.lossy;
     bg.value = s.settings.background;
+    if (document.activeElement !== bgHex) bgHex.value = s.settings.background;
     bgField.hidden = target.supportsAlpha;
     bgLabel.textContent = s.settings.removeBackground ? 'Background colour' : 'Fill for transparent areas';
+    bgHex.setAttribute('aria-label', `${bgLabel.textContent}, hex code`);
     colourSelect.value = s.settings.colour ?? 'original';
     removeBg.checked = !!s.settings.removeBackground;
     toleranceField.hidden = !s.settings.removeBackground;
     tolerance.value = String(s.settings.bgTolerance ?? 25);
     toleranceOut.textContent = String(s.settings.bgTolerance ?? 25);
     // Controls are locked while a batch runs, so results match what's shown.
-    for (const el of [targetSelect, quality, maxSize, maxUnit, bg, colourSelect, removeBg, tolerance]) el.disabled = s.running;
+    for (const el of [targetSelect, quality, maxSize, maxUnit, bg, bgHex, colourSelect, removeBg, tolerance]) el.disabled = s.running;
     formatNote.textContent = target.id === 'bmp'
       ? 'BMP files are uncompressed and can be very large.'
       : target.id === 'png'
@@ -513,6 +542,14 @@ function createCard(
     h('div', { class: 'file-actions' }, download, previewBtn, remove),
   );
   return { root, previews, beforeImg, beforeDoc, afterImg, afterDoc, afterFig, name, meta, targetField, targetSelect, status, progress, messages, previewBtn, download, remove };
+}
+
+/** "#abc", "abc", "#AABBCC" -> "#aabbcc"; anything else -> null. */
+export function parseHexColour(value: string): string | null {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim());
+  if (!m) return null;
+  const hex = m[1]!.toLowerCase();
+  return `#${hex.length === 3 ? [...hex].map((ch) => ch + ch).join('') : hex}`;
 }
 
 /** Short type label for document tiles: "CSV", "XLSX", "MD"… */

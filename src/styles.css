@@ -616,11 +616,27 @@ body.has-files .dz-status {
 }
 
 .field-tolerance {
-  flex: 1 1 140px;
+  flex: 1 1 104px;
 }
 
 .settings-edits .field-color {
-  flex: 0 1 140px;
+  flex: 0 1 176px;
+}
+
+/* Swatch and hex code read as one control. */
+.colour-group .color {
+  flex: 0 0 48px;
+  width: 48px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.colour-group .hex-input {
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  font-family: var(--mono);
+  font-size: 0.875rem;
 }
 
 .field-hint {
@@ -666,7 +682,7 @@ body.has-files .dz-status {
   min-width: 0;
 }
 
-.input-group .text-input {
+.input-group .text-input:not(.hex-input) {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }

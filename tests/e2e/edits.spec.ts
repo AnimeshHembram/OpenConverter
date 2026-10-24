@@ -178,7 +178,7 @@ test('remove background with JPEG replaces the background with the chosen colour
   await addFiles(page, [{ name: 'product.png', mimeType: 'image/png', buffer: png }]);
   await page.getByTestId('target').selectOption('jpeg');
   await page.getByTestId('remove-bg').check();
-  await expect(page.getByLabel('Background colour')).toHaveAttribute('type', 'color');
+  await expect(page.getByLabel('Background colour', { exact: true })).toHaveAttribute('type', 'color');
   await page.getByTestId('background').fill('#00ff00');
   const { bytes, card } = await convertAndDownload(page);
   const { rgba } = await pixelsAt(page, bytes, 'image/jpeg', [[5, 5], [100, 75]]);
