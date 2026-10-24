@@ -596,6 +596,112 @@ body.has-files .dz-status {
   border-radius: 5px;
 }
 
+/* Second settings row: edits applied before encoding. */
+.settings-edits {
+  /* The checkbox has a hint underneath: align on labels, not bottoms. */
+  align-items: start;
+  padding-top: 14px;
+}
+
+.field-max {
+  flex: 0 1 200px;
+}
+
+.field-colour {
+  flex: 0 1 180px;
+}
+
+.field-removebg {
+  flex: 0 1 auto;
+}
+
+.field-tolerance {
+  flex: 1 1 140px;
+}
+
+.settings-edits .field-color {
+  flex: 0 1 140px;
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.field-hint:empty {
+  display: none;
+}
+
+.text-input {
+  font: inherit;
+  color: var(--text);
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h);
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--fast) var(--ease);
+}
+
+.text-input::placeholder {
+  color: var(--faint);
+  opacity: 1;
+}
+
+.text-input:hover {
+  border-color: var(--muted);
+}
+
+.text-input[aria-invalid='true'] {
+  border-color: var(--text);
+  border-style: dashed;
+}
+
+/* Number and unit read as one control. */
+.input-group {
+  display: flex;
+  min-width: 0;
+}
+
+.input-group .text-input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.input-group .select-unit {
+  width: auto;
+  flex: 0 0 auto;
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--control-h);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--inverse);
+  cursor: pointer;
+}
+
+.settings :disabled,
+.settings :disabled + span {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* Range: monochrome track and thumb. */
 .range {
   width: 100%;
@@ -697,6 +803,20 @@ body.has-files .dz-status {
   border-radius: var(--radius-sm);
   /* Checkerboard reveals transparency. */
   background: repeating-conic-gradient(var(--checker) 0 25%, var(--bg) 0 50%) 0 0 / 10px 10px;
+}
+
+.thumb-doc {
+  display: grid;
+  place-items: center;
+  background: var(--subtle);
+  color: var(--text);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.thumb[hidden] {
+  display: none;
 }
 
 .file-body {
@@ -1090,6 +1210,32 @@ body.has-files .dz-status {
   font-size: 0.875rem;
 }
 
+.pd-doc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.pd-doc-badge {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 80px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.pd-doc .btn {
+  text-decoration: none;
+}
+
 .pd-footer {
   display: flex;
   justify-content: flex-end;
@@ -1146,7 +1292,11 @@ body.has-files .dz-status {
 
   .field-target,
   .field-quality,
-  .field-color {
+  .field-color,
+  .field-max,
+  .field-colour,
+  .field-removebg,
+  .field-tolerance {
     flex: 1 1 100%;
   }
 

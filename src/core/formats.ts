@@ -1,8 +1,9 @@
 import type { FormatInfo } from './types';
 
 /**
- * Every format OpenConvert can read or write. Document formats will be added
- * here in Phase 2 with `category: 'document'`.
+ * Every format OpenConverter can read or write. Images are read and written;
+ * PDF (`category: 'document'`) is currently an output only: images can be
+ * saved as PDFs, but PDFs are not accepted as input.
  */
 export const FORMATS: readonly FormatInfo[] = [
   {
@@ -43,6 +44,15 @@ export const FORMATS: readonly FormatInfo[] = [
     category: 'image',
     lossy: false,
     supportsAlpha: true, // via 32-bit BITMAPV4HEADER
+  },
+  {
+    id: 'pdf',
+    label: 'PDF',
+    mime: 'application/pdf',
+    extensions: ['pdf'],
+    category: 'document',
+    lossy: true, // the page image is stored as JPEG, so quality applies
+    supportsAlpha: false,
   },
 ];
 

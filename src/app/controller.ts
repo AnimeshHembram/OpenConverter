@@ -49,7 +49,18 @@ type Listener = (s: AppState) => void;
 let idCounter = 0;
 const nextId = () => `f${++idCounter}`;
 
-export const settingsKey = (s: Settings) => `${s.target}|${s.target === 'jpeg' || s.target === 'webp' ? s.quality : ''}|${s.background}`;
+/** Identifies the settings that affect the output, so results can be marked out of date. */
+export const settingsKey = (s: Settings) => {
+  const lossy = !!findFormatById(s.target)?.lossy;
+  return [
+    s.target,
+    lossy ? s.quality : '',
+    s.background,
+    s.colour ?? 'original',
+    s.removeBackground ? `bg${s.bgTolerance ?? 25}` : '',
+    lossy && s.maxBytes ? `max${s.maxBytes}` : '',
+  ].join('|');
+};
 
 export function isStale(item: FileItem, settings: Settings): boolean {
   return !!item.result && item.result.settingsKey !== settingsKey(settings);
@@ -273,7 +284,7 @@ export class Controller {
       const names = dedupeNames(done.map((i) => i.result!.fileName));
       const zip = await createZip(done.map((i, n) => ({ name: names[n]!, data: i.result!.blob })));
       const fmt = findFormatById(this.state.settings.target);
-      downloadBlob(zip, `openconvert-${done.length}-${fmt?.extensions[0] ?? 'files'}.zip`);
+      downloadBlob(zip, `openconverter-${done.length}-${fmt?.extensions[0] ?? 'files'}.zip`);
     } catch (e) {
       this.set({ notice: { kind: 'error', text: e instanceof ConversionError || e instanceof Error ? e.message : String(e) } });
     }

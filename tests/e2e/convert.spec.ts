@@ -131,7 +131,7 @@ test('batch conversion downloads a ZIP with one correctly named entry per file',
   await expect(page.locator('[data-testid=file-card][data-status=done]')).toHaveCount(3);
   await expect(page.getByTestId('download-all')).toHaveText('Download all (3) as ZIP');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('download-all').click()]);
-  expect(dl.suggestedFilename()).toBe('openconvert-3-png.zip');
+  expect(dl.suggestedFilename()).toBe('openconverter-3-png.zip');
   const fs = await import('node:fs/promises');
   const zip = await fs.readFile((await dl.path())!);
   const names: string[] = [];

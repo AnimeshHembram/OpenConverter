@@ -29,6 +29,7 @@ export function sniff(bytes: Uint8Array): SniffResult {
     const dib = b[14]! | (b[15]! << 8) | (b[16]! << 16) | (b[17]! << 24);
     if ([12, 40, 52, 56, 64, 108, 124].includes(dib)) return { formatId: 'bmp' };
   }
+  if (b.length >= 5 && ascii(b, 0, 5) === '%PDF-') return { formatId: 'pdf' };
 
   // Recognised formats we do not (yet) convert, so the error can name them.
   if (b.length >= 6 && ascii(b, 0, 3) === 'GIF') return { formatId: null, knownUnsupported: 'GIF' };
@@ -42,7 +43,6 @@ export function sniff(bytes: Uint8Array): SniffResult {
       return { formatId: null, knownUnsupported: 'HEIC/HEIF' };
     }
   }
-  if (b.length >= 5 && ascii(b, 0, 5) === '%PDF-') return { formatId: null, knownUnsupported: 'PDF' };
   if (b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0) return { formatId: null, knownUnsupported: 'ICO' };
   const head = new TextDecoder().decode(b.subarray(0, Math.min(b.length, 256))).trimStart().toLowerCase();
   if (head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) {

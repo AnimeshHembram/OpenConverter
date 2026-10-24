@@ -40,6 +40,10 @@ export async function inspectFile(file: File): Promise<InspectedFile> {
     throw new ConversionError('UNSUPPORTED_FORMAT', what);
   }
   const format = findFormatById(sniffed.formatId)!;
+  if (format.category !== 'image') {
+    // PDF is an output format only, for now.
+    throw new ConversionError('UNSUPPORTED_FORMAT', `${format.label} files can't be converted yet. OpenConverter can save images as PDFs, but not the other way round.`);
+  }
 
   const warnings: string[] = [];
   const byExt = findFormatByExtension(file.name);
@@ -67,7 +71,7 @@ export function checkDimensions({ width, height }: Dimensions, policy: PixelPoli
   if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
     throw new ConversionError(
       'IMAGE_TOO_LARGE',
-      `This image is ${width} × ${height}. OpenConvert can handle up to ${MAX_DIMENSION.toLocaleString('en')} pixels per side. Resize it first, then try again.`,
+      `This image is ${width} × ${height}. OpenConverter can handle up to ${MAX_DIMENSION.toLocaleString('en')} pixels per side. Resize it first, then try again.`,
     );
   }
   if (width * height > policy.maxPixels) {

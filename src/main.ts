@@ -27,6 +27,10 @@ async function start(): Promise<void> {
     target: caps.encoders.has('webp') ? 'webp' : 'jpeg',
     quality: 0.85,
     background: '#ffffff',
+    colour: 'original',
+    removeBackground: false,
+    bgTolerance: 25,
+    maxBytes: null,
   });
   mountApp(root, controller, caps);
   root.removeAttribute('aria-busy');

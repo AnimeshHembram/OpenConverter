@@ -42,14 +42,21 @@ The UI never imports a conversion module, so a redesign can replace `src/ui/view
    - Formats without alpha (JPEG) **always** get the background painted behind the image with `destination-over`. This leaves opaque pixels unchanged, so correctness never depends on detecting transparency first.
    - Whether the image had transparency is computed **at full resolution**. For JPEG this is a strip-wise scan, only for inputs that can carry alpha, and it drives the warning. For BMP and the WASM WebP encoder it comes from the exact pixel array the encoder uses, and it decides 24-bit or 32-bit BMP.
    - An earlier version used a 256-pixel downscaled probe, which missed thin features. Downscaled probes must not be used for correctness decisions.
-4. **Encode** with one of three encoders:
+4. **Edits** (`edits.ts`, pure functions on RGBA bytes, unit-tested in Node), only when requested, on the full-resolution canvas pixels:
+   - background removal: the dominant edge colour (4-bit-per-channel bins) is the background; a scanline flood fill from the edges removes connected pixels within the tolerance, so similar colours *inside* the subject are kept; boundary pixels just outside the tolerance get partial alpha. It reports how well the edges matched, which drives the "not one plain colour" note;
+   - colour: grayscale (Rec. 709 luma) or black and white (Otsu threshold). Alpha is kept.
+   After edits, outputs without alpha are flattened onto the chosen colour as in step 3.
+5. **Encode** with one of four encoders:
    - native `canvas.toBlob` for PNG and JPEG, and WebP where supported;
    - the lazy-loaded WASM WebP encoder;
-   - the JS BMP encoder.
+   - the JS BMP encoder;
+   - the PDF writer (`pdf.ts`): the canvas is encoded as JPEG and embedded unchanged in a one-page PDF (DCTDecode). Offered only where the browser encodes JPEG natively.
+
+   With a size limit (`compress.ts`), lossy encoders are called repeatedly: first at the chosen quality, then a binary search (at most 8 more encodes) for the highest quality that fits, keeping the smallest result if nothing fits.
 
    WASM *load* failures and *encode* failures give different, actionable messages, and a failed load can be retried.
-5. **`verifyOutput`** checks every encoder path: the output is non-empty, the sniffed signature matches the target, the extension matches, and the MIME type is canonical. Otherwise it fails rather than offering a mislabelled file.
-6. **Cleanup** runs in a `finally` on success, failure and cancellation: `ImageBitmap.close()`, revoking `<img>` decode URLs, and shrinking canvases to 0×0.
+6. **`verifyOutput`** checks every encoder path: the output is non-empty, the sniffed signature matches the target, the extension matches, and the MIME type is canonical. Otherwise it fails rather than offering a mislabelled file.
+7. **Cleanup** runs in a `finally` on success, failure and cancellation: `ImageBitmap.close()`, revoking `<img>` decode URLs, and shrinking canvases to 0×0.
 
 ## Resource lifecycle
 
@@ -86,7 +93,7 @@ The UI never imports a conversion module, so a redesign can replace `src/ui/view
 
 ## Phase 2 boundaries
 
-Document conversion isn't implemented. When it is:
+PDF is already an *output* of the image converter (`category: 'document'`, rejected as input by `inspectFile`). Document conversion isn't implemented. When it is:
 
 1. Add formats to `src/core/formats.ts` with `category: 'document'`. Extend `sniff` (PDF is already recognised and currently rejected) and `inspectFile`.
 2. Create `src/modules/document/`, exporting `createDocumentConverter(caps)` and registering it in `src/main.ts`. The controller, queue, ZIP and download code need no changes.

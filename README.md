@@ -2,7 +2,7 @@
 
 Free, open-source file conversion that runs **entirely in your browser**. No account, no uploads, no server, no tracking.
 
-**Current scope: images.** Convert between PNG, JPEG, WebP and BMP, one file or a batch. Document conversion is planned (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#phase-2-boundaries)).
+**Current scope: images.** Convert between PNG, JPEG, WebP and BMP, save images as PDF, make them grayscale or black and white, remove plain backgrounds and compress to a size limit, one file or a batch. Document conversion is planned (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#phase-2-boundaries)).
 
 Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/OpenConverter/`
 
@@ -13,7 +13,12 @@ Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/Open
 - A large before/after preview for each file, with format, dimensions and size, and a download button.
 - The real format is detected from the file's bytes, not its name. A wrong extension gets a warning.
 - Each file shows its name, format, dimensions (as displayed, after photo rotation) and size, with before and after previews.
-- Quality setting for JPEG and WebP. A background colour fills transparent areas when converting to JPEG.
+- Quality setting for JPEG, WebP and PDF. A background colour fills transparent areas when converting to JPEG or PDF.
+- **PDF output:** each image becomes a one-page PDF, sized to the image at 96 px per inch. The page image is a JPEG embedded unchanged (no PDF library is used). PDFs are not accepted as input.
+- **Colour:** original, grayscale (Rec. 709 luma) or two-tone black and white (the threshold is chosen per image with Otsu's method).
+- **Remove background:** makes the plain, solid-colour background around the subject transparent, with a tolerance slider and softened edges. For JPEG and PDF the background is replaced with the chosen colour instead. It finds the background from the image's edges and doesn't recognise subjects, so it suits product photos, logos, scans and screenshots, not a person in a busy scene; the app says so when the background isn't one colour.
+- **Compress to under N KB/MB** (JPEG, WebP, PDF): the quality is lowered, per file, to the highest setting that fits. If even the lowest quality is too big, the smallest version is kept and the app explains why.
+- Settings are locked while a batch converts, so every result matches what's on screen.
 - Batch conversion with progress, cancel and per-file remove. "Download all" gives a ZIP with unique file names.
 - Every output is checked before it's offered: it must be non-empty, have the right file signature, the right MIME type and a matching extension. A browser that silently produces the wrong format gets an error instead of a mislabelled file.
 
@@ -26,6 +31,7 @@ Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/Open
 | **Photo rotation (EXIF)** | Rotated JPEGs are shown and converted the right way up, and the displayed size accounts for rotation. If a browser ever ignores the rotation, the app warns that the result may be sideways. |
 | **Metadata** | Conversion goes through a canvas, so EXIF (including GPS location), colour profiles and other metadata are **not** copied to the output. Images in wide-gamut colour spaces are converted to sRGB. |
 | **Other inputs** | GIF, HEIC/HEIF, AVIF, TIFF, ICO, SVG and PDF are recognised and rejected with a clear message. |
+| **PDF output** | One image per PDF, stored as JPEG, so transparency is filled with the chosen colour. Combining several images into one PDF isn't supported yet. |
 
 ## Limits
 
@@ -48,6 +54,7 @@ Images over the limit are rejected from their header **before** decoding, with a
 | PNG and JPEG output | Native canvas encoder (all modern browsers). |
 | WebP output | Native where available (Chrome, Edge, Firefox). Safari has no native WebP encoder, so OpenConverter loads its own, [libwebp compiled to WebAssembly](https://github.com/jamsinclair/jSquash). It runs on your device and is only downloaded from this site when needed. If it can't load, the user gets a specific error with alternatives. |
 | BMP output | Built-in TypeScript encoder (no browser can write BMP natively). |
+| PDF output | Built-in TypeScript writer around the browser's JPEG encoder. |
 | BMP input | Built-in decoder for consistent transparency, with the browser as a fallback for rare variants (RLE). |
 
 Encoders are detected at startup by checking what the browser actually produces, not by its name.

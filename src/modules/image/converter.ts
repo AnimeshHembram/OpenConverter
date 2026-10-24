@@ -4,9 +4,13 @@ import { outputFileName } from '../../core/filename';
 import { FORMATS, findFormatByExtension, getFormat } from '../../core/formats';
 import { checkDimensions } from '../../core/inspect';
 import type { ConversionContext, ConversionInput, ConversionResult, ConvertOptions, Converter, FormatInfo } from '../../core/types';
+import { formatBytes } from '../../core/limits';
 import { encodeBmp, hasTransparency, type RawImage } from './bmp';
 import { canvasToBlob, type ImageCapabilities } from './capabilities';
+import { fitToSize } from './compress';
 import { decodeImage, type DecodedImage } from './decode';
+import { applyColour, removeBackground, type BackgroundRemoval } from './edits';
+import { jpegToPdf } from './pdf';
 
 const IMAGE_IDS = FORMATS.filter((f) => f.category === 'image').map((f) => f.id);
 
@@ -107,14 +111,41 @@ export async function verifyOutput(blob: Blob | null, target: FormatInfo, fileNa
   return blob.type === target.mime ? blob : new Blob([blob], { type: target.mime });
 }
 
+/** A size such as "200 KB" for messages. */
+const sizeLabel = (bytes: number) => formatBytes(bytes);
+
+function encodeFailed(target: FormatInfo): ConversionError {
+  return new ConversionError(
+    'ENCODE_FAILED',
+    `Your browser couldn't create the ${target.label} file. This can happen with very large images or when the device is low on memory. Try a smaller image or a different output format.`,
+  );
+}
+
+/** User-facing notes about how background removal went. */
+function backgroundNotes(r: BackgroundRemoval, pixels: number, tolerance: number): string[] {
+  if (!r.colour) return ["This image's edges are already transparent, so there was no background to remove."];
+  if (r.removed === 0) {
+    return ['No plain background was found to remove. Background removal works on images with a solid-colour background.'];
+  }
+  const notes: string[] = [];
+  if (r.removed / pixels > 0.97) notes.push(`Almost the whole image matched the background colour. Try a lower tolerance than ${tolerance}.`);
+  else if (r.edgeMatch < 0.6) {
+    notes.push(
+      "The background doesn't look like one plain colour, so parts of it may remain. Background removal works best on product photos, logos and scans with a solid background.",
+    );
+  }
+  return notes;
+}
+
 export function createImageConverter(caps: ImageCapabilities): Converter {
+  const outputs = [...IMAGE_IDS, 'pdf'];
   return {
     id: 'image-canvas',
     category: 'image',
 
     outputsFor(fromId) {
       if (!IMAGE_IDS.includes(fromId)) return [];
-      return IMAGE_IDS.filter((id) => caps.encoders.has(id));
+      return outputs.filter((id) => caps.encoders.has(id));
     },
 
     async convert(input: ConversionInput, toId: string, options: ConvertOptions, ctx: ConversionContext): Promise<ConversionResult> {
@@ -123,6 +154,11 @@ export function createImageConverter(caps: ImageCapabilities): Converter {
       if (!encoder) throw new ConversionError('ENCODE_UNSUPPORTED', `This browser can't create ${target.label} files.`);
       const warnings: string[] = [];
       const quality = Math.min(1, Math.max(0, options.quality));
+      const colour = options.colour ?? 'original';
+      const removeBg = !!options.removeBackground;
+      const tolerance = Math.round(options.bgTolerance ?? 25);
+      const edits = colour !== 'original' || removeBg;
+      const maxBytes = target.lossy && options.maxBytes && options.maxBytes > 0 ? options.maxBytes : null;
 
       ctx.onProgress({ fraction: 0.05, stage: 'Reading' });
       let decoded: DecodedImage | null = await decodeImage(input.file, input.format);
@@ -143,23 +179,24 @@ export function createImageConverter(caps: ImageCapabilities): Converter {
           }
         }
         throwIfAborted(ctx.signal);
-        ctx.onProgress({ fraction: 0.35, stage: 'Processing' });
+        ctx.onProgress({ fraction: 0.3, stage: 'Processing' });
 
         // `hadAlpha` drives the BMP bit depth and the user-facing warnings. It
         // is always computed from full-resolution pixels.
         let hadAlpha = false;
-        let blob: Blob | null = null;
+        /** Encodes the prepared pixels at a given quality (ignored by lossless encoders). */
+        let encodeAt: (q: number) => Promise<Blob>;
 
-        if (decoded.raw && target.supportsAlpha && encoder !== 'native') {
-          // Fast path for JS-decoded input (BMP): exact pixels, no canvas.
-          hadAlpha = hasTransparency(decoded.raw.data);
-          ctx.onProgress({ fraction: 0.6, stage: 'Encoding' });
-          blob = encoder === 'js'
-            ? new Blob([encodeBmp(decoded.raw, { alpha: hadAlpha }) as Uint8Array<ArrayBuffer>], { type: target.mime })
-            : await encodeWebpWasm(decoded.raw, quality);
+        if (!edits && decoded.raw && target.supportsAlpha && encoder !== 'native') {
+          // Fast path for JS-decoded input (BMP) with no edits: exact pixels, no canvas.
+          const raw = decoded.raw;
+          hadAlpha = hasTransparency(raw.data);
+          encodeAt = encoder === 'js'
+            ? async () => new Blob([encodeBmp(raw, { alpha: hadAlpha }) as Uint8Array<ArrayBuffer>], { type: target.mime })
+            : (q) => encodeWebpWasm(raw, q);
         } else {
-          const checkAlphaForFlatten = !target.supportsAlpha && input.format.supportsAlpha;
-          const needsPixels = encoder !== 'native' || checkAlphaForFlatten;
+          const checkAlphaForFlatten = !target.supportsAlpha && (input.format.supportsAlpha || removeBg);
+          const needsPixels = encoder !== 'native' || checkAlphaForFlatten || edits;
           const { canvas, g, release } = make2d(width, height, needsPixels);
           releases.push(release);
           if (decoded.raw) {
@@ -167,10 +204,23 @@ export function createImageConverter(caps: ImageCapabilities): Converter {
           } else {
             g.drawImage(decoded.source!, 0, 0);
           }
+          // Free the decoded source as soon as the canvas holds the pixels.
+          decoded.close();
+          decoded = null;
+
+          if (edits) {
+            throwIfAborted(ctx.signal);
+            ctx.onProgress({ fraction: 0.4, stage: removeBg ? 'Removing background' : 'Adjusting colour' });
+            // Let the stage label paint before the (synchronous) pixel work.
+            await new Promise((r) => setTimeout(r, 0));
+            const img = g.getImageData(0, 0, width, height);
+            if (removeBg) warnings.push(...backgroundNotes(removeBackground(img.data, width, height, tolerance), width * height, tolerance));
+            applyColour(img.data, colour);
+            g.putImageData(img, 0, 0);
+          }
+
           if (!target.supportsAlpha) {
-            if (checkAlphaForFlatten) {
-              hadAlpha = decoded.raw ? hasTransparency(decoded.raw.data) : canvasHasTransparency(g, width, height);
-            }
+            if (checkAlphaForFlatten) hadAlpha = canvasHasTransparency(g, width, height);
             // Always paint the background behind the image for formats without
             // alpha. 'destination-over' only affects non-opaque pixels, so
             // opaque images are unchanged and correctness never depends on
@@ -180,25 +230,54 @@ export function createImageConverter(caps: ImageCapabilities): Converter {
             g.fillRect(0, 0, width, height);
             g.globalCompositeOperation = 'source-over';
           }
-          // Free the decoded source before encoding to lower peak memory.
-          decoded.close();
-          decoded = null;
           throwIfAborted(ctx.signal);
-          ctx.onProgress({ fraction: 0.6, stage: 'Encoding' });
 
-          if (encoder === 'native') {
-            blob = await canvasToBlob(canvas, target.mime, target.lossy ? quality : undefined);
+          if (toId === 'pdf') {
+            // The page image is a JPEG, embedded unchanged in the PDF.
+            encodeAt = async (q) => {
+              const jpeg = await canvasToBlob(canvas, 'image/jpeg', q);
+              if (!jpeg || jpeg.type !== 'image/jpeg' || jpeg.size === 0) throw encodeFailed(target);
+              try {
+                return new Blob([jpegToPdf(new Uint8Array(await jpeg.arrayBuffer())) as Uint8Array<ArrayBuffer>], { type: target.mime });
+              } catch (e) {
+                throw new ConversionError('ENCODE_FAILED', "OpenConverter couldn't build the PDF from this image. Try JPEG or PNG instead.", { cause: e });
+              }
+            };
+          } else if (encoder === 'native') {
+            encodeAt = async (q) => {
+              const b = await canvasToBlob(canvas, target.mime, target.lossy ? q : undefined);
+              if (!b) throw encodeFailed(target);
+              return b;
+            };
           } else {
             const raw: RawImage = { width, height, data: g.getImageData(0, 0, width, height).data };
             if (target.supportsAlpha) hadAlpha = hasTransparency(raw.data);
-            blob = encoder === 'js'
-              ? new Blob([encodeBmp(raw, { alpha: hadAlpha }) as Uint8Array<ArrayBuffer>], { type: target.mime })
-              : await encodeWebpWasm(raw, quality);
+            encodeAt = encoder === 'js'
+              ? async () => new Blob([encodeBmp(raw, { alpha: hadAlpha }) as Uint8Array<ArrayBuffer>], { type: target.mime })
+              : (q) => encodeWebpWasm(raw, q);
           }
         }
 
+        throwIfAborted(ctx.signal);
+        ctx.onProgress({ fraction: 0.6, stage: maxBytes ? 'Compressing' : 'Encoding' });
+        let blob: Blob;
+        if (maxBytes) {
+          const fit = await fitToSize(encodeAt, maxBytes, quality, ctx.signal);
+          blob = fit.blob;
+          if (!fit.fits) {
+            warnings.push(
+              `This image couldn't be compressed under ${sizeLabel(maxBytes)}, even at the lowest quality. The smallest version (${sizeLabel(blob.size)}) was kept. Try a larger limit${toId === 'webp' ? '' : ', or WebP, which is usually smaller'}.`,
+            );
+          } else if (fit.quality < quality) {
+            warnings.push(`Compressed to fit under ${sizeLabel(maxBytes)}, at ${Math.round(fit.quality * 100)}% quality.`);
+          }
+        } else {
+          blob = await encodeAt(quality);
+        }
+
         const flatten = hadAlpha && !target.supportsAlpha;
-        if (flatten) warnings.push(`Transparent areas were filled with ${options.background}, because ${target.label} can't store transparency.`);
+        if (flatten && removeBg) warnings.push(`The background was replaced with ${options.background}, because ${target.label} can't store transparency. Choose PNG or WebP for a transparent background.`);
+        else if (flatten) warnings.push(`Transparent areas were filled with ${options.background}, because ${target.label} can't store transparency.`);
         if (toId === 'bmp' && hadAlpha && !flatten) {
           warnings.push('Saved as a 32-bit BMP with transparency. Some older apps show transparent areas as black.');
         }

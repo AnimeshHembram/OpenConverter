@@ -34,11 +34,14 @@ describe('sniff', () => {
     expect(sniff(new TextEncoder().encode('BMW owners club newsletter, issue 4')).formatId).toBeNull();
   });
 
+  it('identifies PDF (an output format, rejected as input by inspectFile)', () => {
+    expect(sniff(bytes('%PDF-1.7')).formatId).toBe('pdf');
+  });
+
   it('names recognised but unsupported formats', () => {
     expect(sniff(bytes('GIF89a', 1, 0, 1, 0)).knownUnsupported).toBe('GIF');
     expect(sniff(bytes(0, 0, 0, 0x18, 'ftypheic', 0, 0, 0, 0)).knownUnsupported).toBe('HEIC/HEIF');
     expect(sniff(bytes(0, 0, 0, 0x18, 'ftypavif', 0, 0, 0, 0)).knownUnsupported).toBe('AVIF');
-    expect(sniff(bytes('%PDF-1.7')).knownUnsupported).toBe('PDF');
     expect(sniff(new TextEncoder().encode('<?xml version="1.0"?><svg xmlns="x"/>')).knownUnsupported).toBe('SVG');
     expect(sniff(bytes('hello world')).formatId).toBeNull();
   });

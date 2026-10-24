@@ -63,6 +63,8 @@ export function detectImageCapabilities(
     // is opened from disk (the standalone build), so it isn't offered there.
     if (!encoders.has('webp') && allowWasm && wasmAvailable()) encoders.set('webp', 'wasm');
     encoders.set('bmp', 'js');
+    // PDF pages are JPEGs wrapped by a small JS writer (pdf.ts).
+    if (encoders.get('jpeg') === 'native') encoders.set('pdf', 'js');
     return { encoders };
   })();
   return cached;

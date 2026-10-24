@@ -7,7 +7,9 @@
 import { isStale, settingsKey, type AppState, type Controller, type FileItem } from '../app/controller';
 import { acceptAttribute, getFormat } from '../core/formats';
 import { MAX_BATCH_FILES, MAX_FILE_BYTES, formatBytes } from '../core/limits';
+import type { ColourMode } from '../core/types';
 import type { ImageCapabilities } from '../modules/image/capabilities';
+import { parseSize } from '../modules/image/compress';
 
 type Attrs = Record<string, string | boolean | number | undefined>;
 
@@ -30,6 +32,7 @@ const ICONS = {
   close: 'M6 6l12 12M18 6 6 18',
   lock: 'M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z',
   expand: 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7',
+  open: 'M14 4h6v6m0-6-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
 } as const;
 
 function icon(name: keyof typeof ICONS, size = 16): SVGSVGElement {
@@ -161,7 +164,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   // ---- Output settings -------------------------------------------------
   const targets = c.availableTargets();
   const targetSelect = h('select', { id: 'target', class: 'select', 'data-testid': 'target' });
-  for (const id of ['webp', 'jpeg', 'png', 'bmp']) {
+  for (const id of ['webp', 'jpeg', 'png', 'bmp', 'pdf']) {
     if (!targets.includes(id)) continue;
     const f = getFormat(id);
     const via = caps.encoders.get(id) === 'wasm' ? ' (built-in encoder)' : '';
@@ -182,21 +185,104 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   );
 
   const bg = h('input', { type: 'color', id: 'background', class: 'color', 'data-testid': 'background' });
+  const bgLabel = h('label', { for: 'background', class: 'field-label', text: 'Fill for transparent areas' });
   bg.addEventListener('input', () => c.setSettings({ background: bg.value }));
   const bgField = h(
     'div',
     { class: 'field field-color' },
-    h('label', { for: 'background', class: 'field-label', text: 'Fill for transparent areas' }),
+    bgLabel,
     bg,
+  );
+
+  // Compress: an optional size limit for lossy outputs. Quality is lowered
+  // per file until it fits. The text is kept as typed (render never rewrites
+  // it) so partial input like "1." isn't clobbered.
+  const maxSize = h('input', {
+    type: 'text',
+    inputmode: 'decimal',
+    id: 'max-size',
+    class: 'text-input',
+    placeholder: 'No limit',
+    autocomplete: 'off',
+    'aria-describedby': 'max-size-hint',
+    'data-testid': 'max-size',
+  });
+  const maxUnit = h('select', { class: 'select select-unit', 'aria-label': 'Size unit', 'data-testid': 'max-size-unit' },
+    h('option', { value: 'KB', text: 'KB' }),
+    h('option', { value: 'MB', text: 'MB' }),
+  );
+  const maxHint = h('span', { class: 'field-hint', id: 'max-size-hint' });
+  const applyMaxSize = () => {
+    const bytes = parseSize(maxSize.value, maxUnit.value as 'KB' | 'MB');
+    const invalid = maxSize.value.trim() !== '' && bytes === null;
+    maxSize.setAttribute('aria-invalid', String(invalid));
+    maxHint.textContent = invalid ? 'Enter a number, e.g. 200' : '';
+    c.setSettings({ maxBytes: bytes });
+  };
+  maxSize.addEventListener('input', applyMaxSize);
+  maxUnit.addEventListener('change', applyMaxSize);
+  const maxField = h(
+    'div',
+    { class: 'field field-max' },
+    h('label', { for: 'max-size', class: 'field-label', text: 'Compress to under' }),
+    h('div', { class: 'input-group' }, maxSize, maxUnit),
+    maxHint,
+  );
+
+  // ---- Edits -------------------------------------------------------------
+  const colourSelect = h(
+    'select',
+    { id: 'colour', class: 'select', 'data-testid': 'colour' },
+    h('option', { value: 'original', text: 'Original colours' }),
+    h('option', { value: 'grayscale', text: 'Grayscale' }),
+    h('option', { value: 'bw', text: 'Black and white' }),
+  );
+  colourSelect.addEventListener('change', () => c.setSettings({ colour: colourSelect.value as ColourMode }));
+  const colourField = h(
+    'div',
+    { class: 'field field-colour' },
+    h('label', { for: 'colour', class: 'field-label', text: 'Colour' }),
+    colourSelect,
+  );
+
+  const removeBg = h('input', { type: 'checkbox', id: 'remove-bg', class: 'checkbox', 'aria-describedby': 'remove-bg-hint', 'data-testid': 'remove-bg' });
+  removeBg.addEventListener('change', () => c.setSettings({ removeBackground: removeBg.checked }));
+  const removeBgField = h(
+    'div',
+    { class: 'field field-removebg' },
+    h('span', { class: 'field-label', 'aria-hidden': 'true', text: 'Background' }),
+    h('label', { for: 'remove-bg', class: 'check' }, removeBg, h('span', { text: 'Remove background' })),
+    h('span', { class: 'field-hint', id: 'remove-bg-hint', text: 'Works on plain, solid-colour backgrounds' }),
+  );
+  const tolerance = h('input', { type: 'range', id: 'bg-tolerance', class: 'range', min: 0, max: 100, step: 1, 'data-testid': 'bg-tolerance' });
+  const toleranceOut = h('span', { class: 'field-value' });
+  tolerance.addEventListener('input', () => c.setSettings({ bgTolerance: Number(tolerance.value) }));
+  const toleranceField = h(
+    'div',
+    { class: 'field field-tolerance' },
+    h('label', { for: 'bg-tolerance', class: 'field-label' }, 'Tolerance ', toleranceOut),
+    tolerance,
   );
 
   const formatNote = h('p', { class: 'format-note' });
   const settings = h(
     'div',
-    { class: 'settings', role: 'group', 'aria-label': 'Output settings' },
-    h('div', { class: 'field field-target' }, h('label', { for: 'target', class: 'field-label', text: 'Convert all to' }), targetSelect),
-    qualityField,
-    bgField,
+    { class: 'settings-panel' },
+    h(
+      'div',
+      { class: 'settings', role: 'group', 'aria-label': 'Output settings' },
+      h('div', { class: 'field field-target' }, h('label', { for: 'target', class: 'field-label', text: 'Convert all to' }), targetSelect),
+      qualityField,
+      maxField,
+    ),
+    h(
+      'div',
+      { class: 'settings settings-edits', role: 'group', 'aria-label': 'Edits' },
+      colourField,
+      removeBgField,
+      toleranceField,
+      bgField,
+    ),
   );
 
   // ---- File list and actions --------------------------------------------
@@ -247,15 +333,26 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     quality.value = String(Math.round(s.settings.quality * 100));
     qualityOut.textContent = `${Math.round(s.settings.quality * 100)}%`;
     qualityField.hidden = !target.lossy;
+    maxField.hidden = !target.lossy;
     bg.value = s.settings.background;
     bgField.hidden = target.supportsAlpha;
+    bgLabel.textContent = s.settings.removeBackground ? 'Background colour' : 'Fill for transparent areas';
+    colourSelect.value = s.settings.colour ?? 'original';
+    removeBg.checked = !!s.settings.removeBackground;
+    toleranceField.hidden = !s.settings.removeBackground;
+    tolerance.value = String(s.settings.bgTolerance ?? 25);
+    toleranceOut.textContent = String(s.settings.bgTolerance ?? 25);
+    // Controls are locked while a batch runs, so results match what's shown.
+    for (const el of [targetSelect, quality, maxSize, maxUnit, bg, colourSelect, removeBg, tolerance]) el.disabled = s.running;
     formatNote.textContent = target.id === 'bmp'
       ? 'BMP files are uncompressed and can be very large.'
       : target.id === 'png'
         ? 'PNG is lossless: no quality is lost, but files may be larger.'
-        : caps.encoders.get(target.id) === 'wasm'
-          ? 'Your browser has no built-in WebP encoder, so OpenConverter uses its own. It runs on this device too.'
-          : '';
+        : target.id === 'pdf'
+          ? 'Each image becomes a one-page PDF. The page is stored as a JPEG at the quality you choose.'
+          : caps.encoders.get(target.id) === 'wasm'
+            ? 'Your browser has no built-in WebP encoder, so OpenConverter uses its own. It runs on this device too.'
+            : '';
     formatNote.hidden = !formatNote.textContent;
 
     const has = s.items.length > 0;
@@ -331,6 +428,7 @@ interface CardRefs {
   previews: HTMLElement;
   beforeImg: HTMLImageElement;
   afterImg: HTMLImageElement;
+  afterDoc: HTMLElement;
   afterFig: HTMLElement;
   name: HTMLElement;
   meta: HTMLElement;
@@ -350,10 +448,13 @@ function createCard(
 ): CardRefs {
   const beforeImg = h('img', { alt: '', class: 'thumb', decoding: 'async', loading: 'lazy' });
   const afterImg = h('img', { alt: '', class: 'thumb', decoding: 'async' });
+  // PDFs can't be shown in an <img>, so they get a document tile instead.
+  const afterDoc = h('span', { class: 'thumb thumb-doc', 'aria-hidden': 'true', text: 'PDF' });
   const afterFig = h(
     'figure',
     { class: 'preview preview-after' },
     afterImg,
+    afterDoc,
     h('figcaption', { class: 'visually-hidden', text: 'After' }),
   );
   const previews = h(
@@ -394,7 +495,7 @@ function createCard(
     h('div', { class: 'file-body' }, name, meta, status, progress, messages),
     h('div', { class: 'file-actions' }, download, previewBtn, remove),
   );
-  return { root, previews, beforeImg, afterImg, afterFig, name, meta, status, progress, messages, previewBtn, download, remove };
+  return { root, previews, beforeImg, afterImg, afterDoc, afterFig, name, meta, status, progress, messages, previewBtn, download, remove };
 }
 
 function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
@@ -414,7 +515,12 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState): void {
   const res = item.result;
   r.afterFig.hidden = !res;
   r.root.classList.toggle('has-result', !!res);
-  if (res && r.afterImg.getAttribute('src') !== res.url) {
+  const isDoc = res?.format.id === 'pdf';
+  r.afterImg.hidden = isDoc;
+  r.afterDoc.hidden = !isDoc;
+  if (res && isDoc) {
+    r.afterImg.removeAttribute('src');
+  } else if (res && r.afterImg.getAttribute('src') !== res.url) {
     r.afterImg.src = res.url;
     r.afterImg.alt = `Converted: ${res.fileName}`;
   }
@@ -492,14 +598,23 @@ function createPreviewDialog(c: Controller) {
     opener = null;
   });
 
-  const pane = (label: string, src: string | undefined, alt: string, caption: string) =>
+  const pane = (label: string, src: string | undefined, alt: string, caption: string, doc = false) =>
     h(
       'figure',
       { class: 'pd-pane' },
       h('figcaption', { class: 'pd-label' }, h('span', { text: label }), h('span', { class: 'pd-meta', text: caption })),
-      src
-        ? h('div', { class: 'pd-image' }, h('img', { src, alt, decoding: 'async' }))
-        : h('div', { class: 'pd-image pd-empty', text: 'Not converted yet' }),
+      !src
+        ? h('div', { class: 'pd-image pd-empty', text: 'Not converted yet' })
+        : doc
+          ? h(
+              'div',
+              { class: 'pd-image pd-empty pd-doc' },
+              h('span', { class: 'pd-doc-badge', 'aria-hidden': 'true', text: 'PDF' }),
+              h('span', { text: 'One-page PDF document' }),
+              // The browser's own PDF viewer shows it; nothing leaves the device.
+              h('a', { href: src, target: '_blank', rel: 'noopener', class: 'btn btn-small', 'data-testid': 'open-pdf' }, icon('open', 15), h('span', { text: 'Open PDF' })),
+            )
+          : h('div', { class: 'pd-image' }, h('img', { src, alt, decoding: 'async' })),
     );
 
   function render(item: FileItem) {
@@ -514,6 +629,7 @@ function createPreviewDialog(c: Controller) {
         res?.url,
         res ? `Converted: ${res.fileName}` : '',
         res ? [res.format.label, res.width && res.height ? `${res.width} × ${res.height}` : '', formatBytes(res.blob.size)].filter(Boolean).join(' · ') : '',
+        res?.format.id === 'pdf',
       ),
     );
     footer.replaceChildren();

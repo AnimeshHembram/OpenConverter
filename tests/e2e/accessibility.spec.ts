@@ -59,9 +59,25 @@ test('controls have accessible names and a logical tab order', async ({ page }) 
   await expect(page.getByLabel('Fill for transparent areas')).toHaveAttribute('type', 'color');
 
   await page.getByTestId('file-input').focus();
+  await expect(page.getByRole('textbox', { name: 'Compress to under' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Size unit' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Colour' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Remove background' })).toBeVisible();
+
+  // Output settings first, then edits, in reading order.
   expect(await tabTo(page, 'target')).toBe(1);
   expect(await tabTo(page, 'quality')).toBe(1);
+  expect(await tabTo(page, 'max-size')).toBe(1);
+  expect(await tabTo(page, 'max-size-unit')).toBe(1);
+  expect(await tabTo(page, 'colour')).toBe(1);
+  expect(await tabTo(page, 'remove-bg')).toBe(1);
   expect(await tabTo(page, 'background')).toBe(1);
+  await page.getByTestId('remove-bg').focus();
+  // The tolerance slider appears (and joins the tab order) only when needed.
+  await expect(page.getByTestId('bg-tolerance')).toBeHidden();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('slider', { name: /Tolerance/ })).toBeVisible();
+  expect(await tabTo(page, 'bg-tolerance')).toBe(1);
 });
 
 test('status is announced through a live region and errors are not conveyed by colour alone', async ({ page }) => {

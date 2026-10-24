@@ -26,11 +26,22 @@ export interface FormatInfo {
   supportsAlpha: boolean;
 }
 
+/** Colour treatment applied before encoding. */
+export type ColourMode = 'original' | 'grayscale' | 'bw';
+
 export interface ConvertOptions {
   /** 0..1 for lossy encoders. Ignored for lossless formats. */
   quality: number;
   /** CSS colour used to fill transparent areas when the output cannot store alpha. */
   background: string;
+  /** Default 'original'. 'bw' is two-tone black and white. */
+  colour?: ColourMode;
+  /** Make a plain, solid-colour background transparent (filled with `background` for formats without alpha). */
+  removeBackground?: boolean;
+  /** 0..100: how far a pixel's colour may be from the background colour and still be removed. */
+  bgTolerance?: number;
+  /** Lossy outputs only: the largest acceptable file size in bytes. Quality is lowered until it fits. */
+  maxBytes?: number | null;
 }
 
 export interface ProgressInfo {
