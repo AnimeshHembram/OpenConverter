@@ -278,6 +278,14 @@ body.has-files .hero-lede {
   gap: 16px;
 }
 
+.boot-hint {
+  max-width: 36rem;
+  margin: 0 auto;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
 .noscript {
   text-align: center;
   color: var(--muted);

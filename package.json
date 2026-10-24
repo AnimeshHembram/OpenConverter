@@ -6,6 +6,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "vite --open",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "build:pages": "node scripts/build-pages.mjs",

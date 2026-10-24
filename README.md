@@ -69,7 +69,8 @@ Requires Node 20 or newer (CI uses Node 22).
 
 ```bash
 npm ci                       # clean install from the lockfile
-npm run dev                  # dev server
+npm start                    # dev server, opens the app in your browser
+npm run dev                  # dev server without opening a browser
 npm run typecheck
 npm test                     # unit tests (Vitest)
 npm run build                # production build at "/" into dist/
@@ -81,6 +82,8 @@ npm run test:all             # everything above, in order
 npm run test:all:chromium    # same, Chromium only (faster locally)
 npm run fixtures             # regenerate binary test fixtures (APNG, animated WebP, rotated JPEG)
 ```
+
+Opening `index.html` directly from disk shows only a bare page: the app is TypeScript that Vite compiles and serves. Use `npm start` (development) or `npm run build` then `npm run preview` (production build at http://localhost:4173).
 
 Debug hook: add `?noNative=webp` to the URL to force the WebAssembly WebP encoder in any browser.
 

@@ -73,3 +73,15 @@ test('a failed file is shown as not converted with a text-labelled error', async
   await expect(row.locator('.msg-error')).toHaveText(/^Error: This doesn't look like/);
   await expect(row.getByTestId('download')).toBeHidden();
 });
+
+test('the loading hint is replaced as soon as the app starts', async ({ page }) => {
+  await open(page);
+  await expect(page.locator('.boot-hint')).toHaveCount(0);
+});
+
+test('opening index.html straight from disk explains how to start the app', async ({ page }) => {
+  const { pathToFileURL } = await import('node:url');
+  const { resolve } = await import('node:path');
+  await page.goto(pathToFileURL(resolve('index.html')).href);
+  await expect(page.locator('.boot-hint')).toContainText('npm start');
+});
