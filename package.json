@@ -8,8 +8,9 @@
   "scripts": {
     "start": "vite --open",
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/build-standalone.mjs",
     "build:pages": "node scripts/build-pages.mjs",
+    "build:standalone": "node scripts/build-standalone.mjs",
     "preview": "vite preview --port 4173 --strictPort",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

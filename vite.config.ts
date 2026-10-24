@@ -9,7 +9,8 @@ import { defineConfig } from 'vitest/config';
  * `npm run build:pages` set BASE_PATH; a plain `npm run build` targets "/".
  */
 const base = process.env.BASE_PATH ?? '/';
-if (!base.startsWith('/') || !base.endsWith('/')) {
+// "./" (relative) is used only by the standalone build (scripts/build-standalone.mjs).
+if (base !== './' && (!base.startsWith('/') || !base.endsWith('/'))) {
   throw new Error(`BASE_PATH must start and end with "/", got "${base}"`);
 }
 

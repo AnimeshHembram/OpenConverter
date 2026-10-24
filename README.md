@@ -73,7 +73,7 @@ npm start                    # dev server, opens the app in your browser
 npm run dev                  # dev server without opening a browser
 npm run typecheck
 npm test                     # unit tests (Vitest)
-npm run build                # production build at "/" into dist/
+npm run build                # production build at "/" into dist/, plus dist-standalone/index.html
 npm run build:pages          # production build at /OpenConverter/ into dist-pages/
 npx playwright install       # once: browsers for the end-to-end tests
 npm run test:e2e             # browser tests against dist/ (all projects)
@@ -83,7 +83,7 @@ npm run test:all:chromium    # same, Chromium only (faster locally)
 npm run fixtures             # regenerate binary test fixtures (APNG, animated WebP, rotated JPEG)
 ```
 
-Opening `index.html` directly from disk shows only a bare page: the app is TypeScript that Vite compiles and serves. Use `npm start` (development) or `npm run build` then `npm run preview` (production build at http://localhost:4173).
+**Opening from disk:** the source `index.html` can't run on its own (it's TypeScript that Vite compiles). `npm run build` also creates `dist-standalone/index.html`, a single self-contained file you can double-click or copy anywhere: no server, no network. Its security policy allows exactly its inlined code by hash. From disk, browsers can't load the WebAssembly WebP encoder, so in that file WebP output appears only in browsers that encode WebP natively (Chrome, Edge, Firefox); Safari users get PNG, JPEG and BMP. For development use `npm start`; to preview the production build use `npm run preview` (http://localhost:4173).
 
 Debug hook: add `?noNative=webp` to the URL to force the WebAssembly WebP encoder in any browser.
 

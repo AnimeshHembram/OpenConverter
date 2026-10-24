@@ -49,14 +49,19 @@ let cached: Promise<ImageCapabilities> | null = null;
  * @param forceDisable  Test/debug hook: pretend these native encoders are
  *   missing (e.g. `?noNative=webp`) to exercise fallbacks in any browser.
  */
-export function detectImageCapabilities(forceDisable: readonly string[] = []): Promise<ImageCapabilities> {
+export function detectImageCapabilities(
+  forceDisable: readonly string[] = [],
+  { allowWasm = true }: { allowWasm?: boolean } = {},
+): Promise<ImageCapabilities> {
   if (cached) return cached;
   cached = (async () => {
     const encoders = new Map<string, EncoderKind>();
     for (const [id, mime] of NATIVE_CANDIDATES) {
       if (!forceDisable.includes(id) && (await probeNativeEncoder(mime))) encoders.set(id, 'native');
     }
-    if (!encoders.has('webp') && wasmAvailable()) encoders.set('webp', 'wasm');
+    // The WASM encoder is a separate file; it can't be loaded when the page
+    // is opened from disk (the standalone build), so it isn't offered there.
+    if (!encoders.has('webp') && allowWasm && wasmAvailable()) encoders.set('webp', 'wasm');
     encoders.set('bmp', 'js');
     return { encoders };
   })();

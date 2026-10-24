@@ -15,7 +15,10 @@ async function start(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const forceDisable = (params.get('noNative') ?? '').split(',').filter(Boolean);
 
-  const caps = await detectImageCapabilities(forceDisable);
+  // The standalone build is opened from disk (file://): only what's inlined
+  // in the page can load, which excludes the WebAssembly WebP encoder.
+  const standalone = location.protocol === 'file:';
+  const caps = await detectImageCapabilities(forceDisable, { allowWasm: !standalone });
   registerConverter(createImageConverter(caps));
   // Phase 2: document converters register here, each lazily loading its
   // libraries on first use so the image converter stays fast to load.
