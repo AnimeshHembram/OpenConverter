@@ -44,11 +44,26 @@ test('opened from disk, the full app works under its strict CSP', async ({ page,
   expect(dl.suggestedFilename()).toBe('disk.jpg');
   expect(sniff(await readFile((await dl.path())!)).formatId).toBe('jpeg');
 
-  // The WASM encoder can't load from disk, so it is never offered here.
+  // The WASM encoder can't load from disk, so WebP is offered exactly when
+  // this browser encodes it natively. Probe the engine rather than assume by
+  // browser name: WebKit builds differ (Safari, WebKitGTK, Playwright's WebKit).
+  const nativeWebp = await page.evaluate(async () => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 2;
+    const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/webp', 0.9));
+    return blob?.type === 'image/webp';
+  });
   const webpOption = page.getByTestId('target').locator('option[value=webp]');
-  if (browserName === 'webkit') await expect(webpOption).toHaveCount(0);
-  else await expect(webpOption).not.toContainText('built-in encoder');
+  if (nativeWebp) {
+    await expect(webpOption, `${browserName} encodes WebP natively, so WebP must be offered`).toHaveCount(1);
+    await expect(webpOption).not.toContainText('built-in encoder');
+  } else {
+    await expect(webpOption, `${browserName} has no native WebP encoder and the WASM one can't load from disk`).toHaveCount(0);
+  }
 
-  expect(requests.filter((u) => !u.startsWith('file:') && !u.startsWith('blob:') && !u.startsWith('data:'))).toEqual([]);
-  expect(errors).toEqual([]);
+  expect(
+    requests.filter((u) => !u.startsWith('file:') && !u.startsWith('blob:') && !u.startsWith('data:')),
+    'requests that left the device',
+  ).toEqual([]);
+  expect(errors, 'console and page errors').toEqual([]);
 });

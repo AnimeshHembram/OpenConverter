@@ -101,16 +101,20 @@ test('an image is saved as a one-page PDF that embeds the picture at its full si
   await expect(card.getByRole('img', { name: /^Converted/ })).toHaveCount(0);
   await card.getByTestId('preview').click();
   const dialog = page.getByTestId('preview-dialog');
-  await expect(dialog).toContainText('One-page PDF document');
+  await expect(dialog).toContainText('PDF document');
   await expect(dialog.getByTestId('open-pdf')).toHaveAttribute('href', /^blob:/);
   await expect(dialog.getByRole('button', { name: 'Download product.pdf' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test('PDFs are still rejected as input, with a clear message', async ({ page }) => {
+test('PDFs are accepted as input too (Level 2), with their own outputs', async ({ page }) => {
   await open(page);
   await addFiles(page, [{ name: 'doc.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7\n%stuff\n') }]);
-  await expect(page.getByTestId('file-card')).toContainText("PDF files can't be converted yet");
+  const row = page.getByTestId('file-card');
+  await expect(row).toHaveAttribute('data-status', 'ready');
+  await expect(row.getByTestId('row-target')).toHaveValue('png');
+  // Image settings don't apply to a PDF on its own.
+  await expect(page.getByTestId('target')).toBeHidden();
 });
 
 test('grayscale uses perceptual weights and keeps the image size', async ({ page }) => {
@@ -120,15 +124,28 @@ test('grayscale uses perceptual weights and keeps the image size', async ({ page
   await page.getByTestId('target').selectOption('png');
   await page.getByTestId('colour').selectOption('grayscale');
   const { bytes } = await convertAndDownload(page);
-  const { width, height, rgba } = await pixelsAt(page, bytes, 'image/png', [[5, 5], [15, 5], [25, 5], [35, 5]]);
+  const points: [number, number][] = [[5, 5], [15, 5], [25, 5], [35, 5]];
+  const { width, height, rgba } = await pixelsAt(page, bytes, 'image/png', points);
   expect([width, height]).toEqual([40, 10]);
-  // Rec. 709: red 54, green 182, blue 18, grey unchanged.
-  expect(rgba).toEqual([
-    [54, 54, 54, 255],
-    [182, 182, 182, 255],
-    [18, 18, 18, 255],
-    [128, 128, 128, 255],
+  // Rec. 709 luma of each band, from the input exactly as this engine decodes
+  // it: WebKit can decode pure green as (1, 255, 1) because of colour
+  // management, so the nominal 182 becomes 183 there. Still exact, per engine.
+  const input = (await pixelsAt(page, png, 'image/png', points)).rgba;
+  const expected = input.map(([r, g, b]) => {
+    const y = Math.round(0.2126 * r! + 0.7152 * g! + 0.0722 * b!);
+    return [y, y, y, 255];
+  });
+  expect(rgba).toEqual(expected);
+  // And the bands really were red, green, blue and mid grey, so the weights are tested.
+  expect(input.map((p) => p.slice(0, 3))).toEqual([
+    [255, expect.any(Number), expect.any(Number)],
+    [expect.any(Number), 255, expect.any(Number)],
+    [expect.any(Number), expect.any(Number), 255],
+    [128, 128, 128],
   ]);
+  for (const [i, ch] of [[0, 1], [0, 2], [1, 0], [1, 2], [2, 0], [2, 1]] as const) expect(input[i]![ch]!).toBeLessThanOrEqual(3);
+  // Nominal Rec. 709 values, allowing WebKit's one-step colour-management shift.
+  [54, 182, 18, 128].forEach((nominal, i) => expect(Math.abs(expected[i]![0]! - nominal)).toBeLessThanOrEqual(1));
 });
 
 test('black and white produces only pure black and pure white pixels', async ({ page }) => {
@@ -187,15 +204,21 @@ test('remove background with JPEG replaces the background with the chosen colour
   await expect(card).toContainText('The background was replaced with #00ff00');
 });
 
-test('remove background warns when the background is not one plain colour', async ({ page }) => {
+// Previously this produced an image anyway, with a warning that "parts may
+// remain". A busy image with no person in it now fails with an explanation
+// and no output, so nothing damaged or unchanged is offered as a result.
+test('remove background refuses a busy image with no person in it, and explains why', async ({ page }) => {
   test.slow();
   await open(page);
   const noise = await paint(page, 'noise', 'image/png');
   await addFiles(page, [{ name: 'busy.png', mimeType: 'image/png', buffer: noise }]);
   await page.getByTestId('target').selectOption('png');
   await page.getByTestId('remove-bg').check();
-  const { card } = await convertAndDownload(page);
-  await expect(card.locator('.msg-warning')).toContainText(/plain (background|colour)/);
+  await page.getByTestId('convert').click();
+  const card = page.getByTestId('file-card');
+  await expect(card).toHaveAttribute('data-status', 'error', { timeout: 45_000 });
+  await expect(card).toContainText(/photos of people, and on any subject against a plain, solid-colour background/);
+  await expect(card.getByTestId('download')).toBeHidden();
 });
 
 test('compress to under a size limit lowers the quality until the file fits', async ({ page }) => {

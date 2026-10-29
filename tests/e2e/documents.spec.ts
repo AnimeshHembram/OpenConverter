@@ -55,10 +55,10 @@ test('each kind of document is detected from its content and offered the right o
   await expect(card(page, 'export.txt')).toContainText("This .txt file contains JSON, so it's treated as JSON.");
 
   const options = (name: string) => card(page, name).getByTestId('row-target').locator('option').allTextContents();
-  expect(await options('people.csv')).toEqual(['Excel', 'JSON', 'Markdown', 'HTML']);
+  expect(await options('people.csv')).toEqual(['Excel', 'JSON', 'PDF', 'Markdown', 'HTML']);
   expect(await options('data.json')).toEqual(['CSV', 'Excel', 'Markdown']);
-  expect(await options('notes.md')).toEqual(['HTML', 'Text']);
-  expect(await options('plain.txt')).toEqual(['Markdown', 'HTML']);
+  expect(await options('notes.md')).toEqual(['PDF', 'Word', 'HTML', 'Text']);
+  expect(await options('plain.txt')).toEqual(['PDF', 'Word', 'Markdown', 'HTML']);
   await expect(card(page, 'people.csv').getByRole('combobox', { name: 'Convert people.csv to' })).toHaveValue('xlsx');
   // With only documents, the image settings stay out of the way.
   await expect(page.getByTestId('target')).toBeHidden();
@@ -136,6 +136,7 @@ test('Markdown → text and text → Markdown', async ({ page }) => {
     { name: 'b.txt', mimeType: 'text/plain', buffer: text('# not a heading\nline two\n') },
   ]);
   await card(page, 'a.md').getByTestId('row-target').selectOption('txt');
+  await card(page, 'b.txt').getByTestId('row-target').selectOption('md'); // text's default is PDF
   const a = await convertRow(page, 'a.md');
   expect(a.name).toBe('a.txt');
   expect(a.bytes.toString('utf8')).toBe('Title\n\nBold link\n');

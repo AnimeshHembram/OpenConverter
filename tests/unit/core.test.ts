@@ -52,11 +52,8 @@ describe('inspectFile', () => {
     await expect(inspectFile(huge)).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
     await expect(inspectFile(new File(['GIF89a......'], 'a.gif'))).rejects.toThrow(/GIF files aren't supported/);
     await expect(inspectFile(new File(['hello'], 'notes.png'))).rejects.toThrow(/doesn't look like/);
-    // PDF is an output format only: PDFs are still rejected as input.
-    await expect(inspectFile(new File(['%PDF-1.7\n%...'], 'doc.pdf'))).rejects.toMatchObject({
-      code: 'UNSUPPORTED_FORMAT',
-      message: expect.stringMatching(/PDF files can't be converted yet/),
-    });
+    // PDFs are accepted (Level 2); a ZIP archive is not.
+    expect((await inspectFile(new File(['%PDF-1.7\n%...'], 'doc.pdf'))).format.id).toBe('pdf');
   });
 
   it('rejects images whose header declares too many pixels', () => {

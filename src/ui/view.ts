@@ -96,7 +96,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     h('span', {
       class: 'dz-meta',
       id: 'dropzone-hint',
-      text: `Images (PNG, JPEG, WebP, BMP), text, Markdown, JSON, CSV or Excel · up to ${formatBytes(MAX_FILE_BYTES)} per file · up to ${MAX_BATCH_FILES} files · you can also paste`,
+      text: `Images (PNG, JPEG, WebP, BMP), PDF, text, Markdown, JSON, CSV or Excel · up to ${formatBytes(MAX_FILE_BYTES)} per file · up to ${MAX_BATCH_FILES} files · you can also paste`,
     }),
     zoneStatus,
   );
@@ -281,7 +281,12 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     { class: 'field field-removebg' },
     h('span', { class: 'field-label', 'aria-hidden': 'true', text: 'Background' }),
     h('label', { for: 'remove-bg', class: 'check' }, removeBg, h('span', { text: 'Remove background' })),
-    h('span', { class: 'field-hint', id: 'remove-bg-hint', text: 'Works on plain, solid-colour backgrounds' }),
+    h('span', {
+      class: 'field-hint',
+      id: 'remove-bg-hint',
+      // Photos need the segmentation model, which a page opened from disk can't load.
+      text: location.protocol === 'file:' ? 'Works on plain, solid-colour backgrounds' : 'Works on photos of people, and on plain backgrounds',
+    }),
   );
   const tolerance = h('input', { type: 'range', id: 'bg-tolerance', class: 'range', min: 0, max: 100, step: 1, 'data-testid': 'bg-tolerance' });
   const toleranceOut = h('span', { class: 'field-value' });
@@ -289,7 +294,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
   const toleranceField = h(
     'div',
     { class: 'field field-tolerance' },
-    h('label', { for: 'bg-tolerance', class: 'field-label' }, 'Tolerance ', toleranceOut),
+    h('label', { for: 'bg-tolerance', class: 'field-label' }, 'Plain-background tolerance ', toleranceOut),
     tolerance,
   );
 
@@ -579,7 +584,7 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState, c: Controller): vo
   if (docIn) {
     const targets = c.targetsFor(item.id);
     if (r.targetSelect.dataset.options !== targets.join(',')) {
-      r.targetSelect.replaceChildren(...targets.map((t) => h('option', { value: t, text: getFormat(t).label })));
+      r.targetSelect.replaceChildren(...targets.map((t) => h('option', { value: t, text: c.targetLabel(item.id, t) })));
       r.targetSelect.dataset.options = targets.join(',');
     }
     r.targetSelect.value = item.target ?? '';
@@ -611,7 +616,7 @@ function updateCard(r: CardRefs, item: FileItem, s: AppState, c: Controller): vo
     const pct = Math.round((Math.abs(delta) / item.size) * 100);
     // Size change only means something between image formats; a CSV and a workbook aren't comparable.
     const change = docIn ? '' : ` (${delta <= 0 ? `${pct}% smaller` : `${pct}% larger`})`;
-    statusText = `Converted to ${res.format.label} · ${formatBytes(res.blob.size)}${change}`;
+    statusText = `Converted to ${res.label ?? res.format.label} · ${formatBytes(res.blob.size)}${change}`;
     if (stale) statusText += docIn ? ' · output changed, convert again to update' : ' · settings changed, convert again to update';
   }
   r.status.textContent = statusText;
@@ -710,8 +715,10 @@ function createPreviewDialog(c: Controller) {
   const content = (blob: Blob, format: FormatInfo, src: string, alt: string) => {
     if (format.category === 'image') return h('div', { class: 'pd-image' }, h('img', { src, alt, decoding: 'async' }));
     if (TEXT_FORMATS.has(format.id)) return textPreview(blob, alt);
-    if (format.id === 'pdf') return docTile(format, 'One-page PDF document', src);
+    if (format.id === 'pdf') return docTile(format, 'PDF document', src);
     if (format.id === 'xlsx') return docTile(format, 'Excel workbook: open it in Excel, Google Sheets or Numbers');
+    if (format.id === 'docx') return docTile(format, 'Word document: open it in Word, Google Docs or Pages');
+    if (format.id === 'zip') return docTile(format, 'ZIP file with one image per page');
     return docTile(format, `${format.label} file`);
   };
 

@@ -50,23 +50,44 @@ describe('removeBackground', () => {
     expect(r.edgeMatch).toBeLessThan(0.6);
   });
 
-  it('feathers boundary pixels that are close to the background colour', () => {
-    // A pale pink rim (about 42 away from white) around a red subject.
-    const rimmed = () =>
-      image(9, 9, (x, y) => {
-        if (x >= 3 && x <= 5 && y >= 3 && y <= 5) return [200, 0, 0, 255];
-        if (x >= 2 && x <= 6 && y >= 2 && y <= 6) return [255, 225, 225, 255];
+  // Replaces the earlier "feathers boundary pixels close to the background
+  // colour" test: edge transparency now comes from how much of the subject
+  // colour each outline pixel contains, not from the tolerance setting, so a
+  // blended edge never leaves a fringe of the old background behind.
+  it('gives blended outline pixels their real coverage and removes the background colour from them', () => {
+    // A white disc on black: a one-pixel ring of 50% grey is an anti-aliased edge.
+    const d = image(11, 11, (x, y) => {
+      const r = Math.hypot(x - 5, y - 5);
+      if (r <= 2.5) return [240, 240, 240, 255];
+      if (r <= 3.5) return [120, 120, 120, 255];
+      return [0, 0, 0, 255];
+    });
+    removeBackground(d, 11, 11, 25);
+    const ring = (5 + 3) * 4; // (x 8, y 5) in a row-major RGBA array of width 11
+    const o = 5 * 11 * 4 + ring;
+    expect(d[o + 3]).toBeGreaterThan(100);
+    expect(d[o + 3]).toBeLessThan(155); // about half covered
+    // Unmixed back to the disc's colour: no dark fringe once composited.
+    expect(d[o]).toBeGreaterThan(225);
+    expect(alphaAt(d, 11, 5, 5)).toBe(255);
+    expect(alphaAt(d, 11, 0, 0)).toBe(0);
+  });
+
+  it('uses the tolerance to decide which colours count as background', () => {
+    // A light grey band (25 from white) between the white edge and the subject.
+    const banded = () =>
+      image(12, 12, (x, y) => {
+        if (x >= 5 && x <= 6 && y >= 5 && y <= 6) return [200, 0, 0, 255];
+        if (x >= 2 && x <= 9 && y >= 2 && y <= 9) return [240, 240, 240, 255];
         return [255, 255, 255, 255];
       });
-    const loose = rimmed();
-    removeBackground(loose, 9, 9, 15); // limit 28, soft edge up to ~45: the rim is softened
-    const rim = alphaAt(loose, 9, 2, 4)!;
-    expect(rim).toBeGreaterThan(0);
-    expect(rim).toBeLessThan(255);
-    expect(alphaAt(loose, 9, 4, 4)).toBe(255);
-    const strict = rimmed();
-    removeBackground(strict, 9, 9, 5); // limit 12, soft edge up to ~19: the rim is kept
-    expect(alphaAt(strict, 9, 2, 4)).toBe(255);
+    const loose = banded();
+    removeBackground(loose, 12, 12, 25); // limit 44: the band is background
+    expect(alphaAt(loose, 12, 3, 3)).toBe(0);
+    const strict = banded();
+    removeBackground(strict, 12, 12, 0); // limit 4: the band is kept
+    expect(alphaAt(strict, 12, 3, 3)).toBe(255);
+    expect(alphaAt(strict, 12, 0, 0)).toBe(0);
   });
 
   it('does nothing when the edges are already transparent', () => {

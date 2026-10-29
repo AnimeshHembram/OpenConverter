@@ -40,7 +40,7 @@ export interface ConvertOptions {
   background: string;
   /** Default 'original'. 'bw' is two-tone black and white. */
   colour?: ColourMode;
-  /** Make a plain, solid-colour background transparent (filled with `background` for formats without alpha). */
+  /** Make the background transparent (filled with `background` for formats without alpha): people via the segmentation model, anything else on a plain background via a colour key. */
   removeBackground?: boolean;
   /** 0..100: how far a pixel's colour may be from the background colour and still be removed. */
   bgTolerance?: number;
@@ -71,6 +71,8 @@ export interface ConversionResult {
   fileName: string;
   width?: number;
   height?: number;
+  /** How to describe the result when its format alone would mislead, e.g. "PNG images (ZIP)". */
+  label?: string;
   /** Non-fatal notes, e.g. "Transparent areas were filled with white." */
   warnings: string[];
 }
@@ -80,6 +82,8 @@ export interface Converter {
   category: FormatCategory;
   /** Output format ids this converter can produce from `fromId`, in this browser. */
   outputsFor(fromId: string): string[];
+  /** A clearer name for an output than its format label, e.g. "PNG images" for PDF pages. */
+  outputLabel?(fromId: string, toId: string): string | undefined;
   /** Why `fromId` can't be converted here, when the format is known but unavailable (e.g. offline). */
   unavailableReason?(fromId: string): string | undefined;
   convert(

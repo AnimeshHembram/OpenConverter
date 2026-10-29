@@ -6,7 +6,7 @@ import { markdownToText, textToMarkdown } from '../../src/modules/document/markd
 import { coerce, headerNames, jsonToSheets, sheetToObjects, toMarkdownTable } from '../../src/modules/document/table';
 import { cellValue, readWorkbook, sheetNames, writeWorkbook } from '../../src/modules/document/xlsx';
 
-const conv = createDocumentConverter({ spreadsheets: true });
+const conv = createDocumentConverter({ libraries: true });
 const ctx = () => ({ signal: new AbortController().signal, onProgress: () => {} });
 
 async function convert(content: BlobPart, name: string, from: string, to: string) {
@@ -77,10 +77,10 @@ describe('Markdown and text', () => {
 
 describe('document converter', () => {
   it('offers the documented outputs, with the default first', () => {
-    expect(conv.outputsFor('csv')).toEqual(['xlsx', 'json', 'md', 'html']);
+    expect(conv.outputsFor('csv')).toEqual(['xlsx', 'json', 'pdf', 'md', 'html']);
     expect(conv.outputsFor('png')).toEqual([]);
-    const offline = createDocumentConverter({ spreadsheets: false });
-    expect(offline.outputsFor('csv')).toEqual(['json', 'md', 'html']);
+    const offline = createDocumentConverter({ libraries: false });
+    expect(offline.outputsFor('csv')).toEqual(['json', 'md', 'html']); // no Excel or PDF from disk
     expect(offline.outputsFor('xlsx')).toEqual([]);
     expect(offline.unavailableReason?.('xlsx')).toMatch(/website/);
     for (const [from, tos] of Object.entries(DOCUMENT_OUTPUTS)) expect(tos).not.toContain(from);

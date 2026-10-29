@@ -72,11 +72,16 @@ test('controls have accessible names and a logical tab order', async ({ page, br
   expect(await tabTo(page, 'max-size-unit')).toBe(1);
   expect(await tabTo(page, 'colour')).toBe(1);
   expect(await tabTo(page, 'remove-bg')).toBe(1);
-  // The fill colour must be reachable by keyboard in every engine. WebKit
-  // leaves <input type="color"> out of the Tab order, so the hex box is the
-  // keyboard route there; elsewhere the swatch comes first.
-  if (browserName !== 'webkit') expect(await tabTo(page, 'background')).toBe(1);
-  expect(await tabTo(page, 'background-hex')).toBe(1);
+  // The fill colour must be reachable by keyboard in every engine: next comes
+  // the swatch, then its hex box. Some WebKit builds (WebKitGTK, Safari)
+  // leave <input type="color"> out of the Tab order while Playwright's WebKit
+  // includes it, so only WebKit may skip the swatch; nothing else may come
+  // in between, and the hex box is always reached.
+  const focused = () => page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+  await page.keyboard.press('Tab');
+  if ((await focused()) === 'background') await page.keyboard.press('Tab');
+  else expect(browserName, 'only WebKit may leave the colour swatch out of the Tab order').toBe('webkit');
+  expect(await focused()).toBe('background-hex');
   // …and it works from the keyboard: a hex code updates the swatch and the setting.
   await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.type('#0F0');
@@ -91,7 +96,7 @@ test('controls have accessible names and a logical tab order', async ({ page, br
   // The tolerance slider appears (and joins the tab order) only when needed.
   await expect(page.getByTestId('bg-tolerance')).toBeHidden();
   await page.keyboard.press('Space');
-  await expect(page.getByRole('slider', { name: /Tolerance/ })).toBeVisible();
+  await expect(page.getByRole('slider', { name: /tolerance/i })).toBeVisible();
   expect(await tabTo(page, 'bg-tolerance')).toBe(1);
 });
 

@@ -43,7 +43,11 @@ The UI never imports a conversion module, so a redesign can replace `src/ui/view
    - Whether the image had transparency is computed **at full resolution**. For JPEG this is a strip-wise scan, only for inputs that can carry alpha, and it drives the warning. For BMP and the WASM WebP encoder it comes from the exact pixel array the encoder uses, and it decides 24-bit or 32-bit BMP.
    - An earlier version used a 256-pixel downscaled probe, which missed thin features. Downscaled probes must not be used for correctness decisions.
 4. **Edits** (`edits.ts`, pure functions on RGBA bytes, unit-tested in Node), only when requested, on the full-resolution canvas pixels:
-   - background removal: the dominant edge colour (4-bit-per-channel bins) is the background; a scanline flood fill from the edges removes connected pixels within the tolerance, so similar colours *inside* the subject are kept; boundary pixels just outside the tolerance get partial alpha. It reports how well the edges matched, which drives the "not one plain colour" note;
+   - background removal (`removeImageBackground` in `converter.ts`) chooses between two methods:
+     - **Colour key** (`edits.ts`): `analyseBackground` finds the dominant edge colour (4-bit-per-channel bins) and flood-fills the connected region within the tolerance, then grows it into soft shadows (darker, same hue, gradual) on light backgrounds. It changes no pixels; it reports `plain` only when the edges match (≥ 85%), the region is neither nothing nor everything, and ≥ 60% of the kept region's outline differs clearly from the background colour. `applyBackgroundKey` then clears the region, keeps shadows as see-through black, and gives outline pixels their coverage by projecting each onto the line from the background colour to the nearby subject colour, unmixing the background out of them (no halo).
+     - **Person segmentation** (`segment.ts`, `tflite.ts`, `matte.ts`): the MediaPipe selfie segmentation model (256 × 256 input, sigmoid output) runs on a dependency-free TFLite interpreter that implements exactly the model's ten float32 operators and refuses anything else; a unit test checks it against Google's LiteRT output. The model file is served from `assets/models/`, fetched on first use and verified against a pinned SHA-256. `cleanProbabilities` drops detached blobs under 3% of the main subject; `refineMatte` keeps the model's answer where it's certain (p ≥ 0.9 or ≤ 0.1) and, in the band between, estimates each full-resolution pixel's coverage from its colour between the local subject and background colours (sampling-based matting), falling back to the model where those colours are too alike. `applyMatte` only changes alpha.
+     - Order: the colour key is used when the background is plain and it wouldn't cut more than 2% into a person the model found; otherwise the model, when it finds a person (coverage ≥ 1%, mean confidence ≥ 0.55, with a "check the edges" note below 0.75); otherwise `BACKGROUND_NOT_FOUND`, leaving the image unchanged. The standalone file has no model, so only plain backgrounds work there.
+     - An earlier version applied the colour key to every image. On low-light photos the dark key colour matched dark clothing and hair, so it deleted the subject and kept the lights; that is the regression the `rainyStreet` scene (`tests/fixtures/scenes.ts`) guards against;
    - colour: grayscale (Rec. 709 luma) or black and white (Otsu threshold). Alpha is kept.
    After edits, outputs without alpha are flattened onto the chosen colour as in step 3.
 5. **Encode** with one of four encoders:
@@ -87,7 +91,7 @@ The UI never imports a conversion module, so a redesign can replace `src/ui/view
 
 ## Security and privacy
 
-- The production CSP is injected as a `<meta>` tag (`vite.config.ts`): `connect-src 'self'`, `worker-src 'none'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`, and `script-src 'self' 'wasm-unsafe-eval'` for the WebP encoder.
+- The production CSP is injected as a `<meta>` tag (`vite.config.ts`): `connect-src 'self'`, `worker-src 'self'` (pdf.js), `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`, and `script-src 'self' 'wasm-unsafe-eval'` for the WebP encoder.
 - There are no inline scripts or styles, no third-party origins and no analytics.
 - Third-party licence texts are emitted into `THIRD_PARTY_NOTICES.txt` at build time from the installed packages.
 
@@ -100,7 +104,13 @@ The UI never imports a conversion module, so a redesign can replace `src/ui/view
 - Documents choose their output per file (`FileItem.target`, `Controller.setTarget`); images keep the shared settings. `itemKey` decides when a result is out of date.
 - The standalone build can't load lazy chunks from `file://`, so it registers the converter with `spreadsheets: false` and Excel files are explained rather than offered.
 
-**Next stages:** PDF (`pdfjs-dist` to render pages and extract text, `pdf-lib` to write and compress; needs `worker-src 'self'`), Word (`mammoth` to read, `docx` to write), PowerPoint (`jszip` to read slides). Each loads lazily, like `exceljs`.
+**Stage 2 (done): PDF.**
+- `src/modules/pdf/pdfjs.ts` lazily loads pdf.js's *legacy* build (the standard build needs `Map.prototype.getOrInsertComputed`, which current browsers lack) with its worker. `vite.config.ts` emits the worker as `.js` (some static hosts serve `.mjs` as binary, which stops module workers) and copies pdf.js's data files to `assets/pdfjs/` (character maps, standard fonts, ICC profile, WebAssembly decoders; not the scripting sandbox). The CSP allows `worker-src 'self'`.
+- `src/modules/pdf/text.ts` rebuilds lines and paragraphs from positioned text: fragments on one baseline form a line, a gap well above the most common line spacing or a font-size change starts a paragraph, and headings are lines ≥1.25× (h2) or ≥1.6× (h1) the body size.
+- `src/modules/pdf/converter.ts`: pages → PNG/JPEG via canvas at 150 dpi (scaled down to the device pixel policy), ZIP when there are several pages; text, Markdown and Word via `text.ts` and blocks; compression via pdf-lib (see README). pdf-lib saves every object it holds, so only kept pages are copied into a rebuilt PDF.
+- `src/modules/document/blocks.ts` is the shared document model (headings, styled runs, list items, code, quotes, tables, rules, page breaks). `pdfwriter.ts` (pdf-lib, standard fonts, WinAnsi coverage check) and `docxwriter.ts` (docx) render it, so Markdown, text, tables and PDF text share one PDF and one Word writer.
+
+**Next stages:** Word input (`mammoth` to read `.docx`), PowerPoint (`jszip` to read slides). Each loads lazily.
 
 ## Testing
 

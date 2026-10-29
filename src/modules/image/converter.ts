@@ -9,7 +9,9 @@ import { encodeBmp, hasTransparency, type RawImage } from './bmp';
 import { canvasToBlob, type ImageCapabilities } from './capabilities';
 import { fitToSize } from './compress';
 import { decodeImage, type DecodedImage } from './decode';
-import { applyColour, removeBackground, type BackgroundRemoval } from './edits';
+import { analyseBackground, applyBackgroundKey, applyColour } from './edits';
+import { applyMatte } from './matte';
+import type { Segmenter } from './segment';
 import { jpegToPdf } from './pdf';
 
 const IMAGE_IDS = FORMATS.filter((f) => f.category === 'image').map((f) => f.id);
@@ -121,23 +123,80 @@ function encodeFailed(target: FormatInfo): ConversionError {
   );
 }
 
-/** User-facing notes about how background removal went. */
-function backgroundNotes(r: BackgroundRemoval, pixels: number, tolerance: number): string[] {
-  if (!r.colour) return ["This image's edges are already transparent, so there was no background to remove."];
-  if (r.removed === 0) {
-    return ['No plain background was found to remove. Background removal works on images with a solid-colour background.'];
+/** A person must cover at least this share of the image to count as found. */
+const MIN_PERSON_COVERAGE = 0.01;
+/** Mean model confidence below which a "person" is treated as not found. */
+const MIN_PERSON_CONFIDENCE = 0.55;
+/** Below this confidence the result is offered with a "check the edges" note. */
+const UNSURE_PERSON_CONFIDENCE = 0.75;
+
+/**
+ * Remove the background from `img`, in place, choosing the method that can
+ * be trusted for this image:
+ *
+ * 1. A colour key, when the background is plain (one colour, crisp outline)
+ *    and it wouldn't cut into a person the model has found.
+ * 2. Otherwise the person segmentation model, when a person is found.
+ * 3. Otherwise nothing is removed and the conversion fails with an
+ *    explanation, rather than returning a damaged or unchanged image.
+ *
+ * Returns user-facing notes.
+ */
+export async function removeImageBackground(
+  img: { width: number; height: number; data: Uint8ClampedArray },
+  tolerance: number,
+  segmenter: Segmenter | undefined,
+  signal: AbortSignal,
+): Promise<string[]> {
+  const { width, height, data } = img;
+  const key = analyseBackground(data, width, height, tolerance);
+  if (!key.colour) return ["This image's edges are already transparent, so there was no background to remove."];
+
+  let person = null;
+  if (segmenter) {
+    person = await segmenter.segment(data, width, height);
+    throwIfAborted(signal);
+    if (person.coverage < MIN_PERSON_COVERAGE || person.confidence < MIN_PERSON_CONFIDENCE) person = null;
   }
-  const notes: string[] = [];
-  if (r.removed / pixels > 0.97) notes.push(`Almost the whole image matched the background colour. Try a lower tolerance than ${tolerance}.`);
-  else if (r.edgeMatch < 0.6) {
-    notes.push(
-      "The background doesn't look like one plain colour, so parts of it may remain. Background removal works best on product photos, logos and scans with a solid background.",
-    );
+
+  if (key.plain) {
+    // Would the key remove part of a person? Then the model knows better.
+    let cut = 0;
+    let body = 0;
+    if (person) {
+      for (let i = 0; i < person.alpha.length; i++) {
+        if (person.alpha[i]! < 128) continue;
+        body++;
+        if (key.mask[i]) cut++;
+      }
+    }
+    if (!person || cut <= body * 0.02) {
+      applyBackgroundKey(data, width, height, key);
+      return [];
+    }
   }
-  return notes;
+
+  if (person) {
+    applyMatte(data, person.alpha);
+    return person.confidence < UNSURE_PERSON_CONFIDENCE
+      ? ["The background was removed around the person, but the model wasn't sure about parts of this photo (common in low light or with busy scenes). Check the edges before using it."]
+      : [];
+  }
+
+  throw new ConversionError(
+    'BACKGROUND_NOT_FOUND',
+    segmenter
+      ? "Couldn't find a background to remove. Automatic removal works on photos of people, and on any subject against a plain, solid-colour background. Nothing was changed."
+      : "This image's background isn't one plain colour, and removing backgrounds from photos needs the online version of OpenConverter. Nothing was changed.",
+  );
 }
 
-export function createImageConverter(caps: ImageCapabilities): Converter {
+export interface ImageConverterOptions {
+  /** Person segmentation for photo backgrounds. Without it, only plain backgrounds can be removed. */
+  segmenter?: Segmenter;
+}
+
+export function createImageConverter(caps: ImageCapabilities, extras: ImageConverterOptions = {}): Converter {
   const outputs = [...IMAGE_IDS, 'pdf'];
   return {
     id: 'image-canvas',
@@ -214,7 +273,7 @@ export function createImageConverter(caps: ImageCapabilities): Converter {
             // Let the stage label paint before the (synchronous) pixel work.
             await new Promise((r) => setTimeout(r, 0));
             const img = g.getImageData(0, 0, width, height);
-            if (removeBg) warnings.push(...backgroundNotes(removeBackground(img.data, width, height, tolerance), width * height, tolerance));
+            if (removeBg) warnings.push(...(await removeImageBackground(img, tolerance, extras.segmenter, ctx.signal)));
             applyColour(img.data, colour);
             g.putImageData(img, 0, 0);
           }

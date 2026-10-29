@@ -1,6 +1,8 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 import { sniff } from '../../src/core/detect';
 import { addFiles, convertAndDownload, makeImage, pixelAt } from '../e2e/helpers';
+import { buildPdf, SAMPLE_TEXT_PAGES } from '../fixtures/pdfs';
+import { rainyStreet } from '../fixtures/scenes';
 
 /**
  * The GitHub Pages build, served under its repository subpath exactly as
@@ -114,4 +116,53 @@ test('the subpath without a trailing slash redirects, like GitHub Pages', async 
   const res = await page.goto(noSlash);
   expect(res?.url()).toBe(baseURL);
   await expect(page.getByTestId('dropzone')).toBeVisible();
+});
+
+test('PDF conversion loads its worker and data files from the subpath', async ({ page, baseURL }) => {
+  test.slow();
+  const w = await openPages(page);
+  // Standard (non-embedded) fonts make pdf.js fetch its font files too.
+  const pdf = await buildPdf({ textPages: SAMPLE_TEXT_PAGES.slice(0, 1) });
+  await addFiles(page, [{ name: 'doc.pdf', mimeType: 'application/pdf', buffer: pdf }]);
+  await page.getByTestId('row-target').selectOption('png');
+  const { name, bytes } = await convertAndDownload(page);
+  expect(name).toBe('doc.png');
+  expect(sniff(bytes).formatId).toBe('png');
+  const base = new URL(baseURL!).pathname;
+  const paths = w.requests.map((r) => new URL(r.url()).pathname);
+  expect(paths.some((p) => p.startsWith(`${base}assets/`) && /pdf\.worker/.test(p)), 'pdf.js worker').toBe(true);
+  expect(paths.some((p) => p.startsWith(`${base}assets/pdfjs/standard_fonts/`)), 'pdf.js font files').toBe(true);
+  checkRequests(w, baseURL!);
+});
+
+test('photo background removal loads its model from the subpath', async ({ page, baseURL }) => {
+  test.slow();
+  const w = await openPages(page);
+  // A person on a dark street: needs the segmentation model, not the colour key.
+  const scene = rainyStreet(320, 400);
+  const png = await page.evaluate(
+    async ({ raw, width, height }) => {
+      const bin = atob(raw);
+      const px = new Uint8ClampedArray(bin.length);
+      for (let i = 0; i < bin.length; i++) px[i] = bin.charCodeAt(i);
+      const c = document.createElement('canvas');
+      c.width = width;
+      c.height = height;
+      c.getContext('2d')!.putImageData(new ImageData(px, width, height), 0, 0);
+      const u8 = new Uint8Array(await (await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/png'))).arrayBuffer());
+      return Array.from(u8);
+    },
+    { raw: Buffer.from(scene.rgba.buffer).toString('base64'), width: scene.width, height: scene.height },
+  );
+  await addFiles(page, [{ name: 'street.png', mimeType: 'image/png', buffer: Buffer.from(png) }]);
+  await page.getByTestId('target').selectOption('png');
+  await page.getByTestId('remove-bg').check();
+  const { bytes } = await convertAndDownload(page);
+  expect(sniff(bytes).formatId).toBe('png');
+  expect((await pixelAt(page, bytes, 'image/png', 2, 2)).rgba[3]).toBe(0); // background removed
+  expect((await pixelAt(page, bytes, 'image/png', 166, 225)).rgba[3]).toBe(255); // dark coat kept
+  const base = new URL(baseURL!).pathname;
+  const paths = w.requests.map((r) => new URL(r.url()).pathname);
+  expect(paths).toContain(`${base}assets/models/selfie_segmentation.tflite`);
+  checkRequests(w, baseURL!);
 });

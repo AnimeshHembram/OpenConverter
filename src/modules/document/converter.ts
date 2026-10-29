@@ -10,21 +10,30 @@ import { decodeText, detectDelimiter } from '../../core/text';
 import type { ConversionContext, ConversionInput, ConversionResult, Converter, FormatInfo } from '../../core/types';
 import { officeKind, zipEntryNames } from '../../core/zipdir';
 import { markdownToHtml, markdownToText, textToHtml, textToMarkdown } from './markdown';
-import { coerce, htmlDocument, escapeHtml, jsonToSheets, sheetToObjects, toHtmlTable, toMarkdownTable, cellText, type Cell, type Sheet } from './table';
+import { markdownToBlocks, textToBlocks, type Block } from './blocks';
+import { blocksToDocx } from './docxwriter';
+import { blocksToPdf } from './pdfwriter';
+import { coerce, htmlDocument, escapeHtml, jsonToSheets, rectangular, sheetToObjects, toHtmlTable, toMarkdownTable, cellText, type Cell, type Sheet } from './table';
 import { readWorkbook, writeWorkbook } from './xlsx';
 
 /** Outputs per input format. The first one is the default choice. */
 export const DOCUMENT_OUTPUTS: Readonly<Record<string, readonly string[]>> = {
-  txt: ['md', 'html'],
-  md: ['html', 'txt'],
+  txt: ['pdf', 'docx', 'md', 'html'],
+  md: ['pdf', 'docx', 'html', 'txt'],
   json: ['csv', 'xlsx', 'md'],
-  csv: ['xlsx', 'json', 'md', 'html'],
-  xlsx: ['csv', 'json', 'md', 'html'],
+  csv: ['xlsx', 'json', 'pdf', 'md', 'html'],
+  xlsx: ['csv', 'json', 'pdf', 'md', 'html'],
 };
 
+/** Outputs (and inputs) that need a lazily loaded library: Excel, PDF and Word writers. */
+const NEEDS_LIBRARY = new Set(['xlsx', 'pdf', 'docx']);
+
 export interface DocumentConverterOptions {
-  /** False in the standalone file opened from disk, where the Excel library can't load. */
-  spreadsheets: boolean;
+  /**
+   * False in the standalone file opened from disk: browsers won't load the
+   * separate library files from there, so Excel, PDF and Word aren't offered.
+   */
+  libraries: boolean;
 }
 
 const UTF8_BOM = '﻿';
@@ -34,9 +43,15 @@ export async function verifyDocument(blob: Blob, target: FormatInfo, fileName: s
   if (!fileName.toLowerCase().endsWith(`.${target.extensions[0]}`)) {
     throw new ConversionError('ENCODE_FAILED', `Internal error: "${fileName}" doesn't match the ${target.label} format, so it was not saved.`);
   }
-  if (target.id === 'xlsx') {
+  if (target.id === 'xlsx' || target.id === 'docx') {
     const names = await zipEntryNames(blob);
-    if (!names || officeKind(names) !== 'xlsx') throw new ConversionError('ENCODE_FAILED', "The Excel file couldn't be created correctly, so it was not saved.");
+    if (!names || officeKind(names) !== target.id) throw new ConversionError('ENCODE_FAILED', `The ${target.label} file couldn't be created correctly, so it was not saved.`);
+  } else if (target.id === 'zip') {
+    if (!(await zipEntryNames(blob))?.length) throw new ConversionError('ENCODE_FAILED', "The ZIP file couldn't be created correctly, so it was not saved.");
+  } else if (target.id === 'pdf') {
+    const head = new TextDecoder('latin1').decode(await blob.slice(0, 8).arrayBuffer());
+    const tail = new TextDecoder('latin1').decode(await blob.slice(Math.max(0, blob.size - 1024)).arrayBuffer());
+    if (!head.startsWith('%PDF-') || !tail.includes('%%EOF')) throw new ConversionError('ENCODE_FAILED', "The PDF couldn't be created correctly, so it was not saved.");
   } else {
     let text: string;
     try {
@@ -57,8 +72,14 @@ export async function verifyDocument(blob: Blob, target: FormatInfo, fileName: s
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
+/** Explain characters the standard PDF fonts can't draw. */
+export function missingCharsNote(missing: ReadonlySet<string>): string {
+  const sample = [...missing].slice(0, 8).join(' ');
+  return `Some characters (${sample}${missing.size > 8 ? ' …' : ''}) can't be shown with the built-in PDF fonts, which cover Western European text, so they appear as "?". Choose Word or HTML to keep them.`;
+}
+
 export function createDocumentConverter(opts: DocumentConverterOptions): Converter {
-  const available = (id: string) => opts.spreadsheets || id !== 'xlsx';
+  const available = (id: string) => opts.libraries || !NEEDS_LIBRARY.has(id);
   return {
     id: 'document-text',
     category: 'document',
@@ -69,7 +90,7 @@ export function createDocumentConverter(opts: DocumentConverterOptions): Convert
     },
 
     unavailableReason(fromId) {
-      if (fromId === 'xlsx' && !opts.spreadsheets) {
+      if (fromId === 'xlsx' && !opts.libraries) {
         return 'Excel files can only be converted on the OpenConverter website or with "npm start", not in the single file opened from disk.';
       }
       return undefined;
@@ -108,6 +129,19 @@ export function createDocumentConverter(opts: DocumentConverterOptions): Convert
       }
 
       // ---- Write the output -----------------------------------------------
+      /** The source as headings, paragraphs and tables, for the PDF and Word writers. */
+      const toBlocks = (): Block[] => {
+        if (from === 'md') return markdownToBlocks(text);
+        if (from === 'txt') return textToBlocks(text);
+        // Tables: one section per sheet, with the sheet name as a heading when there are several.
+        return sheets.flatMap((sh, i) => {
+          const out: Block[] = [];
+          if (i > 0) out.push({ kind: 'pagebreak' });
+          if (sheets.length > 1) out.push({ kind: 'heading', level: 2, runs: [{ text: sh.name }] });
+          out.push({ kind: 'table', header: sh.rows.length > 1, rows: rectangular(sh.rows).map((r) => r.map(cellText)) });
+          return out;
+        });
+      };
       let out: string | Uint8Array;
       const tableSheets = sheets.filter((s) => s.rows.length);
       const firstOnly = (what: string) => {
@@ -158,6 +192,21 @@ export function createDocumentConverter(opts: DocumentConverterOptions): Convert
         case 'csv>html':
         case 'xlsx>html':
           out = htmlDocument(title, sheets.length === 1 ? toHtmlTable(sheets[0]!.rows) : sections(toHtmlTable, (name) => `<h2>${escapeHtml(name)}</h2>\n`));
+          break;
+        case 'txt>pdf':
+        case 'md>pdf':
+        case 'csv>pdf':
+        case 'xlsx>pdf': {
+          const blocks = toBlocks();
+          const cols = sheets.reduce((m, sh) => Math.max(m, ...sh.rows.map((r) => r.length)), 0);
+          const written = await blocksToPdf(blocks, { title, landscape: cols > 6 });
+          if (written.notes.missing.size) warnings.push(missingCharsNote(written.notes.missing));
+          out = written.data;
+          break;
+        }
+        case 'txt>docx':
+        case 'md>docx':
+          out = await blocksToDocx(toBlocks(), title);
           break;
         case 'json>xlsx':
         case 'csv>xlsx': {

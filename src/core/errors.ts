@@ -8,6 +8,7 @@ export type ErrorCode =
   | 'ENCODER_LOAD_FAILED'
   | 'ENCODE_FAILED'
   | 'OUT_OF_MEMORY'
+  | 'BACKGROUND_NOT_FOUND'
   | 'NO_CONVERTER'
   | 'CANCELLED';
 

@@ -53,8 +53,6 @@ export const FORMATS: readonly FormatInfo[] = [
     category: 'document',
     lossy: true, // the page image is stored as JPEG, so quality applies
     supportsAlpha: false,
-    input: false,
-    inputMessage: "PDF files can't be converted yet. OpenConverter can save images as PDFs, but not the other way round.",
   },
   // ---- Text and data -------------------------------------------------------
   { id: 'txt', label: 'Text', mime: 'text/plain', extensions: ['txt', 'text', 'log'], category: 'document', lossy: false, supportsAlpha: false },
@@ -99,7 +97,19 @@ export const FORMATS: readonly FormatInfo[] = [
     lossy: false,
     supportsAlpha: false,
   },
-  // ---- Office documents, recognised but not converted yet --------------------
+  // Output only: several files (e.g. the pages of a PDF as images) in one download.
+  {
+    id: 'zip',
+    label: 'ZIP',
+    mime: 'application/zip',
+    extensions: ['zip'],
+    category: 'document',
+    lossy: false,
+    supportsAlpha: false,
+    input: false,
+    inputMessage: "ZIP archives aren't supported. Extract the files and add them one by one.",
+  },
+  // ---- Office documents: Word and PowerPoint are written, not read yet -------
   {
     id: 'docx',
     label: 'Word',

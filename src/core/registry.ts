@@ -15,6 +15,15 @@ export function outputsFor(fromId: string): string[] {
   return [...out];
 }
 
+/** The name to show for converting `fromId` to `toId`. */
+export function outputLabel(fromId: string, toId: string, fallback: string): string {
+  for (const c of converters) {
+    const l = c.outputLabel?.(fromId, toId);
+    if (l) return l;
+  }
+  return fallback;
+}
+
 /** A user-facing reason why nothing can convert `fromId` here, if a converter knows one. */
 export function unavailableReason(fromId: string): string | undefined {
   for (const c of converters) {

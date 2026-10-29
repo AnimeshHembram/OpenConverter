@@ -55,6 +55,7 @@ export async function inspectFile(file: File): Promise<InspectedFile> {
   }
   const format = findFormatById(sniffed.formatId)!;
   if (format.input === false) throw new ConversionError('UNSUPPORTED_FORMAT', format.inputMessage ?? `${format.label} files can't be converted yet.`);
+  if (format.id === 'pdf') return inspectPdf(file);
 
   const warnings: string[] = [];
   const byExt = findFormatByExtension(file.name);
@@ -95,6 +96,35 @@ export function checkDimensions({ width, height }: Dimensions, policy: PixelPoli
 }
 
 const plural = (n: number, word: string) => `${n.toLocaleString('en')} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * PDF: the page count is read cheaply from the file's page objects when they
+ * aren't compressed; pdf.js only loads when the file is converted.
+ */
+async function inspectPdf(file: File): Promise<InspectedFile> {
+  const warnings: string[] = [];
+  const ext = extensionOf(file.name);
+  if (ext && ext !== 'pdf') warnings.push(`The file is named .${ext} but is actually a PDF.`);
+  let pages = 0;
+  let encrypted = false;
+  const CHUNK = 8 * 1024 * 1024;
+  const dec = new TextDecoder('latin1');
+  // Chunks overlap by 64 bytes so a match can't be cut in half; each chunk
+  // counts only matches that start in its own part, so none counts twice.
+  const OVERLAP = 64;
+  for (let at = 0; at < file.size; at += CHUNK - OVERLAP) {
+    const end = Math.min(file.size, at + CHUNK);
+    const own = end === file.size ? Infinity : CHUNK - OVERLAP;
+    const text = dec.decode(await file.slice(at, end).arrayBuffer());
+    for (const m of text.matchAll(/\/Type\s*\/Page(?![a-zA-Z])/g)) if (m.index! < own) pages++;
+    encrypted ||= /\/Encrypt[\s/<]/.test(text);
+    if (end === file.size) break;
+  }
+  // Page objects inside compressed streams can't be counted without parsing the PDF.
+  const details = pages ? plural(pages, 'page') : undefined;
+  if (encrypted) warnings.push('This PDF is protected. If it needs a password to open, remove it in a PDF app first.');
+  return { format: findFormatById('pdf')!, details, dimensions: null, orientation: null, animated: null, warnings };
+}
 
 /** Text, Markdown, JSON or CSV: decoded and classified by content. */
 async function inspectText(file: File): Promise<InspectedFile> {

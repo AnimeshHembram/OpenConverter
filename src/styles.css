@@ -48,7 +48,8 @@
   --faint: #858585;
   --inverse: #f5f5f5;
   --on-inverse: #0a0a0a;
-  --checker: #1a1a1a;
+  /* Light enough that transparent areas read as a checkerboard, not as black. */
+  --checker: #383838;
 
   color-scheme: dark;
 }

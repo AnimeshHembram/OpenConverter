@@ -9,7 +9,7 @@ import { findFormatById } from '../core/formats';
 import { inspectFile } from '../core/inspect';
 import { MAX_BATCH_FILES } from '../core/limits';
 import { ObjectUrlPool, downloadBlob } from '../core/objectUrls';
-import { findConverter, outputsFor, unavailableReason } from '../core/registry';
+import { findConverter, outputLabel, outputsFor, unavailableReason } from '../core/registry';
 import type { ConversionResult, ConvertOptions, FormatInfo } from '../core/types';
 import { createZip } from '../core/zip';
 
@@ -125,6 +125,13 @@ export class Controller {
   targetsFor(id: string): string[] {
     const f = this.item(id)?.format;
     return f ? outputsFor(f.id) : [];
+  }
+
+  /** How to name an output choice for this file, e.g. "PNG images" for a PDF. */
+  targetLabel(id: string, target: string): string {
+    const f = this.item(id)?.format;
+    const fallback = findFormatById(target)?.label ?? target;
+    return f ? outputLabel(f.id, target, fallback) : fallback;
   }
 
   setTarget(id: string, target: string): void {

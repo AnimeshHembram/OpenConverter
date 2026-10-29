@@ -4,7 +4,7 @@ Free, open-source file conversion that runs **entirely in your browser**. No acc
 
 **Level 1, images:** convert between PNG, JPEG, WebP and BMP, save images as PDF, make them grayscale or black and white, remove plain backgrounds and compress to a size limit, one file or a batch.
 
-**Level 2, documents (stage 1 of 4 done):** text, Markdown, JSON, CSV and Excel. PDF, Word and PowerPoint are next (see [Documents](#documents)).
+**Level 2, documents (stages 1–2 of 4 done):** text, Markdown, JSON, CSV, Excel and PDF, with Word output. Reading Word and PowerPoint files is next (see [Documents](#documents)).
 
 Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/OpenConverter/`
 
@@ -16,9 +16,13 @@ Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/Open
 - The real format is detected from the file's bytes, not its name. A wrong extension gets a warning.
 - Each file shows its name, format, dimensions (as displayed, after photo rotation) and size, with before and after previews.
 - Quality setting for JPEG, WebP and PDF. A background colour fills transparent areas when converting to JPEG or PDF.
-- **PDF output:** each image becomes a one-page PDF, sized to the image at 96 px per inch. The page image is a JPEG embedded unchanged (no PDF library is used). PDFs are not accepted as input.
+- **PDF output:** each image becomes a one-page PDF, sized to the image at 96 px per inch. The page image is a JPEG embedded unchanged (no PDF library is used). PDF input is covered under [Documents](#documents).
 - **Colour:** original, grayscale (Rec. 709 luma) or two-tone black and white (the threshold is chosen per image with Otsu's method).
-- **Remove background:** makes the plain, solid-colour background around the subject transparent, with a tolerance slider and softened edges. For JPEG and PDF the background is replaced with the chosen colour instead. It finds the background from the image's edges and doesn't recognise subjects, so it suits product photos, logos, scans and screenshots, not a person in a busy scene; the app says so when the background isn't one colour.
+- **Remove background:** two methods, and the app picks the one that can be trusted for each image:
+  - **People in photos:** an on-device AI model (Google's MediaPipe selfie segmentation, Apache-2.0) finds the person, and the outline is refined at full resolution from the photo's own colours, so it follows real edges and keeps strands of hair. Works in low light and on dark backgrounds where colour rules fail (a dark coat on a dark street). The ~250 KB model is downloaded once from this site, checked against a fixed SHA-256, and run by OpenConverter's own small interpreter. Your photo never leaves the device.
+  - **Anything on a plain background** (product shots, logos, scans): a colour key that removes the solid-colour region connected to the image's edges, with a tolerance slider. Edge pixels get their true partial transparency with the old background colour taken out, so there's no halo, and soft shadows on light backgrounds are kept as see-through shadows.
+  - If neither fits (a busy scene with no person, or a dark object on a dark backdrop), the file fails with an explanation and nothing is changed, instead of producing a damaged image.
+  - PNG and WebP keep real transparency. JPEG and PDF can't, so the removed background is filled with the chosen colour. Colours of the subject are never altered where it's opaque, and the output has the same size as the input.
 - **Compress to under N KB/MB** (JPEG, WebP, PDF): the quality is lowered, per file, to the highest setting that fits. If even the lowest quality is too big, the smallest version is kept and the app explains why.
 - Settings are locked while a batch converts, so every result matches what's on screen.
 - Batch conversion with progress, cancel and per-file remove. "Download all" gives a ZIP with unique file names.
@@ -30,18 +34,25 @@ Every file is identified from its content, not just its name: JSON by parsing it
 
 | From | To |
 |---|---|
-| Text (.txt) | Markdown (escaped so it reads the same), HTML |
-| Markdown | HTML (a complete page), plain text |
+| Text (.txt) | PDF, Word, Markdown (escaped so it reads the same), HTML |
+| Markdown | PDF, Word, HTML (a complete page), plain text |
 | JSON | CSV, Excel, Markdown table |
-| CSV / TSV | Excel, JSON, Markdown table, HTML table |
-| Excel (.xlsx) | CSV, JSON, Markdown, HTML |
+| CSV / TSV | Excel, JSON, PDF table, Markdown table, HTML table |
+| Excel (.xlsx) | CSV, JSON, PDF table, Markdown, HTML |
+| PDF | PNG or JPEG images (one per page, 150 dpi; a ZIP when there are several), Word (text), text, Markdown, a smaller PDF |
 
 - **Excel:** `.xlsx` files open and edit in Microsoft Excel, Google Sheets, Numbers and LibreOffice. The header row is bold and frozen, and columns are sized to their content. Formulas are read as their last calculated values. A workbook with several sheets becomes one JSON object (one list per sheet), or Markdown/HTML with a section per sheet; CSV holds one table, so only the first sheet is used and the app says so.
 - **Types:** CSV values that are plain numbers become numbers, and true/false become booleans. Numbers with leading zeros (phone numbers, PIN codes, IDs) and very long digit strings stay text, so nothing is mangled. Text starting with `=` is stored as text in Excel, never as a formula.
 - **CSV output** has a UTF-8 byte-order mark so Excel shows accents and non-Latin scripts correctly.
 - **Previews:** text outputs are shown as source text in the preview, never rendered as HTML.
-- **Not supported yet:** PDF, Word (.docx) and PowerPoint (.pptx) input (coming in the next stages); old Office 97–2003 files (.doc, .xls, .ppt) and OpenDocument (.ods, .odt, .odp), which get advice to re-save in the current format; HTML input. Limits: 50 MB for text and data files, 25 MB for workbooks.
-- **Standalone file:** opened from disk, it converts images, text, Markdown, JSON and CSV. Excel needs the website or `npm start`, because the Excel library is a separate file that browsers won't load from disk.
+- **PDF reading** uses Mozilla's pdf.js in a background worker. PDF JavaScript is never run, and forms aren't rendered.
+  - *Text, Markdown and Word* keep text, paragraphs and headings (spotted by font size). Layout, fonts, images and tables aren't kept. Pages with no selectable text (scans) are left out with a note; a PDF that is all scans gets an explanation, because reading text from images (OCR) isn't available yet.
+  - *Images* are rendered at 150 dpi (less for very large pages, to respect the device's pixel limit), up to 300 pages at a time.
+  - *Smaller PDF* rebuilds the file with compressed object streams and drops unused data. Pages that are scans (images with no text) are also tried as JPEG at 150 dpi; pages with text are never turned into pictures. The smallest result wins, and if nothing is noticeably smaller the original is kept and the app says so. When scans are re-compressed, bookmarks and form fields aren't kept.
+  - Password-protected PDFs get a clear message.
+- **Writing PDF and Word:** PDFs have real, selectable text, wrapped and paginated, with headings, lists, code blocks, quotes and tables (header rows repeat on each page; wide tables use landscape). The built-in PDF fonts cover Western European text: other scripts (Hindi, Chinese, emoji…) appear as "?" and the app says so and suggests Word or HTML, which keep every character. Word files have real headings, bulleted and numbered lists, tables and links.
+- **Not supported yet:** Word (.docx) and PowerPoint (.pptx) input (coming in the next stages); old Office 97–2003 files (.doc, .xls, .ppt) and OpenDocument (.ods, .odt, .odp), which get advice to re-save in the current format; HTML input. Limits: 50 MB for text and data files, 25 MB for workbooks.
+- **Standalone file:** opened from disk, it converts images, text, Markdown, JSON and CSV. Excel, PDF input and PDF/Word output need the website or `npm start`, because those libraries are separate files that browsers won't load from disk.
 
 ## Format behaviour and known limitations
 
@@ -51,7 +62,8 @@ Every file is identified from its content, not just its name: JSON by parsing it
 | **Animation** | Animated PNG (APNG) and animated WebP are detected from their headers and **only the first frame is converted**. A note says this before conversion. Animated output isn't supported. If a file's header can't be read far enough to tell, no claim is made either way. GIF isn't supported yet. |
 | **Photo rotation (EXIF)** | Rotated JPEGs are shown and converted the right way up, and the displayed size accounts for rotation. If a browser ever ignores the rotation, the app warns that the result may be sideways. |
 | **Metadata** | Conversion goes through a canvas, so EXIF (including GPS location), colour profiles and other metadata are **not** copied to the output. Images in wide-gamut colour spaces are converted to sRGB. |
-| **Other inputs** | GIF, HEIC/HEIF, AVIF, TIFF, ICO, SVG and PDF are recognised and rejected with a clear message. |
+| **Other inputs** | GIF, HEIC/HEIF, AVIF, TIFF, ICO and SVG are recognised and rejected with a clear message. |
+| **Background removal** | The photo model recognises **people only**. A pet, car or product in a busy scene isn't found (the file fails with an explanation); products on a plain background use the colour key instead. It works on a 256 × 256 view of the photo, so on large images the outline can show slight 2–4 px steps where the photo has no clear edge, and very fine flyaway hair against a similar-coloured background may be lost. In very dark or cluttered photos the model can include nearby objects (a flag behind someone, something they hold); the app adds a "check the edges" note when it's unsure. Shadows on the ground under a person are removed; soft shadows under objects on a plain light background are kept. |
 | **PDF output** | One image per PDF, stored as JPEG, so transparency is filled with the chosen colour. Combining several images into one PDF isn't supported yet. |
 
 ## Limits
@@ -87,8 +99,8 @@ Encoders are detected at startup by checking what the browser actually produces,
 These claims apply to the production site:
 
 - Images are processed in the browser and are never uploaded. There is no backend, analytics, tracking, cookies or account.
-- The page carries a Content-Security-Policy with `connect-src 'self'`. The browser blocks any request to another site, and a test checks this. GitHub Pages can't send custom headers, so the policy is a `<meta>` tag. That means `frame-ancestors` (clickjacking protection) can't be set.
-- The only network requests are to this site itself: the page, its scripts and styles, and, when needed, the WebP encoder file. The browser tests check that conversions make no request to any other origin.
+- The page carries a Content-Security-Policy with `connect-src 'self'` and `worker-src 'self'` (the PDF reader's worker). The browser blocks any request to another site, and a test checks this. GitHub Pages can't send custom headers, so the policy is a `<meta>` tag. That means `frame-ancestors` (clickjacking protection) can't be set.
+- The only network requests are to this site itself: the page, its scripts and styles, and, when needed, the WebP encoder, the PDF reader's files and the background-removal model. The browser tests check that conversions make no request to any other origin.
 - `Referrer-Policy: no-referrer` is set for links that leave the site.
 
 ## Development
@@ -158,4 +170,4 @@ docs/ARCHITECTURE.md
 
 [MIT](LICENSE).
 
-The published site includes third-party code: `@jsquash/webp` (Apache-2.0), libwebp (BSD-3-Clause), `wasm-feature-detect` (Apache-2.0), `marked` (MIT) and `exceljs` (MIT, which bundles JSZip, pako and other permissively licensed packages). Their licence texts are generated into `THIRD_PARTY_NOTICES.txt` at build time and linked from the site footer.
+The published site includes third-party code: `@jsquash/webp` (Apache-2.0), libwebp (BSD-3-Clause), `wasm-feature-detect` (Apache-2.0), `marked` (MIT), `exceljs` (MIT, which bundles JSZip, pako and other permissively licensed packages), `pdfjs-dist` (Apache-2.0, with its fonts, character maps and WebAssembly decoders), `pdf-lib` (MIT), `docx` (MIT) and the MediaPipe selfie segmentation model from `@mediapipe/selfie_segmentation` (Apache-2.0; only the model file is shipped). Their licence texts are generated into `THIRD_PARTY_NOTICES.txt` at build time and linked from the site footer.
