@@ -142,6 +142,27 @@ test('PDF → text, Markdown and Word keep paragraphs and headings; scanned page
   await expect(word.row).toContainText("Layout, fonts, images and tables aren't kept.");
 });
 
+// Regression: CI's WebKit (Safari 26) failed every PDF text extraction.
+// pdf.js reads page text with `for await (… of readableStream)`, and Safari
+// only supports that from version 27. Removing the feature before the page
+// loads reproduces it in every browser project.
+test('PDF text extraction works in browsers that cannot iterate ReadableStreams (Safari 26 and earlier)', async ({ page }) => {
+  await page.addInitScript(() => {
+    const proto = ReadableStream.prototype as unknown as Record<PropertyKey, unknown>;
+    delete proto[Symbol.asyncIterator];
+    delete proto.values;
+  });
+  await open(page);
+  expect(await page.evaluate(() => Symbol.asyncIterator in ReadableStream.prototype)).toBe(false);
+  await addFiles(page, [{ name: 'report.pdf', mimeType: 'application/pdf', buffer: await buildPdf({ textPages: SAMPLE_TEXT_PAGES }) }]);
+  const txt = await convertRow(page, 'report.pdf', 'txt');
+  expect(txt.bytes.toString('utf8')).toBe(
+    'Chapter One\n\nOpenConverter turns PDF pages into images, text and Word documents on your device.\n\nA second paragraph starts here and continues on the next line.\n\nChapter Two\n\nThe second page has its own text.\n',
+  );
+  const md = await convertRow(page, 'report.pdf', 'md');
+  expect(md.bytes.toString('utf8')).toMatch(/^# Chapter One\n\n/);
+});
+
 test('a scanned-only PDF explains that text needs OCR', async ({ page }) => {
   test.slow();
   await open(page);

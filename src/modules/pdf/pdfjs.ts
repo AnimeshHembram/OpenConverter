@@ -5,6 +5,7 @@
  * shipped, and forms/XFA aren't rendered).
  */
 import { ConversionError } from '../../core/errors';
+import { installStreamIterator } from './stream-iterator';
 
 // The "legacy" build: pdf.js's standard build needs very recent JavaScript
 // (e.g. Map.getOrInsertComputed) that many browsers in use don't have yet.
@@ -16,7 +17,11 @@ let lib: Promise<PdfJs> | null = null;
 
 async function load(): Promise<PdfJs> {
   lib ??= (async () => {
-    const [pdfjs, worker] = await Promise.all([import('pdfjs-dist/legacy/build/pdf.mjs'), import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')]);
+    // Before pdf.js runs: Safari 26 and earlier can't iterate ReadableStreams,
+    // which pdf.js needs to read page text (see stream-iterator.ts).
+    installStreamIterator();
+    // Our worker entry wraps pdf.js's worker with the same stream fix.
+    const [pdfjs, worker] = await Promise.all([import('pdfjs-dist/legacy/build/pdf.mjs'), import('./pdf.worker?worker&url')]);
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
     return pdfjs;
   })();

@@ -197,6 +197,9 @@ export default defineConfig({
   plugins: [htmlPlugin(), thirdPartyNoticesPlugin(), pdfjsAssetsPlugin(), segmentationModelPlugin()],
   // The WebP WASM encoder must not be pre-bundled, or its .wasm file is lost.
   optimizeDeps: { exclude: ['@jsquash/webp'] },
+  // The pdf.js worker (src/modules/pdf/pdf.worker.ts) is an ES module, as
+  // pdf.js starts it with { type: 'module' }.
+  worker: { format: 'es' },
   build: {
     target: 'es2022',
     sourcemap: true,
