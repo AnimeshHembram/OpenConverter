@@ -202,9 +202,35 @@ function thirdPartyNoticesPlugin(): Plugin {
   };
 }
 
+/**
+ * Standalone build (STANDALONE=1, set by scripts/build-standalone.mjs): build
+ * the audio and video code into the single file, by swapping two modules for
+ * their standalone versions. The website build is unchanged.
+ * - src/standalone-extras.ts -> standalone-extras.media.ts (hands the
+ *   conversion code to the media converter);
+ * - src/modules/media/libs.ts -> libs.standalone.ts (plain imports of only
+ *   the library parts used, instead of on-demand loading).
+ */
+function standaloneMediaPlugin(): Plugin {
+  const swaps: [string, string, string][] = [
+    ['./standalone-extras', '/src/main.ts', 'standalone-extras.media.ts'],
+    ['./libs', '/src/modules/media/run.ts', 'libs.standalone.ts'],
+  ];
+  return {
+    name: 'openconvert-standalone-media',
+    apply: 'build',
+    enforce: 'pre', // before Vite's own resolver handles the import
+    resolveId(source, importer) {
+      if (process.env.STANDALONE !== '1' || !importer) return null;
+      const swap = swaps.find(([from, by]) => source === from && importer.replace(/\\/g, '/').endsWith(by));
+      return swap ? join(dirname(importer), swap[2]) : null;
+    },
+  };
+}
+
 export default defineConfig({
   base,
-  plugins: [htmlPlugin(), thirdPartyNoticesPlugin(), pdfjsAssetsPlugin(), segmentationModelPlugin()],
+  plugins: [htmlPlugin(), thirdPartyNoticesPlugin(), pdfjsAssetsPlugin(), segmentationModelPlugin(), standaloneMediaPlugin()],
   // The WebP WASM encoder must not be pre-bundled, or its .wasm file is lost.
   optimizeDeps: { exclude: ['@jsquash/webp'] },
   // The pdf.js worker (src/modules/pdf/pdf.worker.ts) is an ES module, as

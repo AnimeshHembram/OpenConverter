@@ -183,11 +183,36 @@ test.describe('audio and video', () => {
   });
 });
 
-test('the standalone file explains that audio and video need the website', async ({ page }) => {
+// The standalone file has the audio tools built in, so it converts audio
+// and video straight from disk, with the same checks as the website.
+test('the standalone file, opened from disk, converts a video to MP3 at the chosen bitrate and to WAV', async ({ page }) => {
+  test.slow();
+  const errors: string[] = [];
+  const requests: string[] = [];
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('request', (r) => requests.push(r.url()));
   await page.goto(pathToFileURL(resolve('dist-standalone/index.html')).href);
   await expect(page.locator('#app')).not.toHaveAttribute('aria-busy');
-  await addFiles(page, [file('clip.webm', clipWebm, 'video/webm')]);
-  const row = card(page, 'clip.webm');
-  await expect(row).toHaveAttribute('data-status', 'error');
-  await expect(row).toContainText('Audio and video conversion needs the OpenConverter website');
+  await addFiles(page, [file('clip.webm', clipWebm, 'video/webm'), file('tone.ogg', toneOgg, 'audio/ogg')]);
+  await page.getByTestId('audio-bitrate').selectOption('96');
+  await card(page, 'tone.ogg').getByTestId('row-target').selectOption('wav');
+  await page.getByTestId('convert').click();
+  for (const name of ['clip.webm', 'tone.ogg']) {
+    await expect(card(page, name), name).toHaveAttribute('data-status', 'done', { timeout: 60_000 });
+  }
+  const download = async (name: string) => {
+    const [d] = await Promise.all([page.waitForEvent('download'), card(page, name).getByTestId('download').click()]);
+    return { name: d.suggestedFilename(), bytes: await readFile((await d.path())!) };
+  };
+  const mp3 = await download('clip.webm');
+  expect(mp3.name).toBe('clip.mp3');
+  expect(new Set(mp3Frames(mp3.bytes).frames.map((f) => f.kbps))).toEqual(new Set([96]));
+  expectTones(await listen(page, mp3.bytes));
+  const wav = await download('tone.ogg');
+  expect(sniff(wav.bytes).formatId).toBe('wav');
+  expectTones(await listen(page, wav.bytes));
+  // Nothing was fetched: everything, including the MP3 encoder, is in the page.
+  expect(requests.filter((u) => /^https?:/.test(u))).toEqual([]);
+  expect(errors).toEqual([]);
 });

@@ -14,6 +14,8 @@ import { build } from 'vite';
 const OUT = 'dist-standalone';
 process.env.BASE_PATH = './';
 process.env.OUT_DIR = OUT;
+// Bundle the audio and video libraries into the page (see vite.config.ts).
+process.env.STANDALONE = '1';
 await build({ logLevel: 'warn' });
 
 let html = await readFile(join(OUT, 'index.html'), 'utf8');
@@ -42,13 +44,16 @@ html = html.replace(css[0], () => `<style>${styles}</style>`);
 
 // Allow exactly the inlined blocks; keep every other directive unchanged.
 html = html
-  .replace("script-src 'self' 'wasm-unsafe-eval'", `script-src 'self' ${scriptHashes.join(' ')}`)
+  // 'wasm-unsafe-eval' stays: the built-in MP3 encoder (LAME) is WebAssembly.
+  // It permits compiling WebAssembly only; JavaScript eval stays blocked.
+  .replace("script-src 'self' 'wasm-unsafe-eval'", `script-src 'self' 'wasm-unsafe-eval' ${scriptHashes.join(' ')}`)
   .replace("style-src 'self'", `style-src 'self' ${styleHashes.join(' ')}`);
 if (!html.includes(scriptHashes[0]) || !html.includes(styleHashes[0])) throw new Error('standalone build: CSP not updated');
 
 await writeFile(join(OUT, 'index.html'), html);
-// Everything else is now inside index.html (the lazily loaded WASM encoder
-// can't run from disk and isn't offered there).
+// Everything else is now inside index.html. The other lazily loaded parts
+// (WebP encoder, PDF, Excel, Word, the background-removal model) can't load
+// from disk and aren't offered there; audio and video are built in.
 await rm(join(OUT, 'assets'), { recursive: true, force: true });
 await rm(join(OUT, 'theme-init.js'), { force: true });
 const kb = (Buffer.byteLength(html) / 1024).toFixed(0);

@@ -9,8 +9,13 @@ import { getFormat } from '../../core/formats';
 import { MAX_WAV_OUTPUT_BYTES, formatBytes } from '../../core/limits';
 import type { ConversionContext, ConversionInput, ConversionResult, ConvertOptions } from '../../core/types';
 import { formatDuration, normaliseBitrate } from './bitrate';
+import { loadLibraries, loadMp3Encoder } from './libs';
 
-type Mediabunny = typeof import('mediabunny');
+/** The parts of Mediabunny this converter uses. */
+export type Mediabunny = Pick<
+  typeof import('mediabunny'),
+  'ALL_FORMATS' | 'BlobSource' | 'BufferTarget' | 'Conversion' | 'Input' | 'Mp3OutputFormat' | 'Output' | 'WavOutputFormat' | 'canEncodeAudio'
+>;
 
 export interface Libraries {
   mb: Mediabunny;
@@ -37,20 +42,17 @@ export function checkWavSize(seconds: number, rate: number, channels: number): v
 
 let libs: Promise<Libraries> | null = null;
 const defaultLoad = (): Promise<Libraries> =>
-  (libs ??= import('mediabunny')
-    .then((mb): Libraries => ({ mb }))
-    .catch((e) => {
-      libs = null;
-      throw e;
-    }));
+  (libs ??= loadLibraries().catch((e) => {
+    libs = null;
+    throw e;
+  }));
 
 let mp3Ready: Promise<void> | null = null;
 /** Use the browser's MP3 encoder if it has one, otherwise register LAME. */
 function ensureMp3Encoder(mb: Mediabunny, registerMp3?: () => void): Promise<void> {
   return (mp3Ready ??= (async () => {
     if (await mb.canEncodeAudio('mp3')) return;
-    if (registerMp3) registerMp3();
-    else (await import('@mediabunny/mp3-encoder')).registerMp3Encoder();
+    (registerMp3 ?? (await loadMp3Encoder()))();
   })().catch((e) => {
     mp3Ready = null;
     throw e;
@@ -164,7 +166,7 @@ export async function convertMedia(
     throwIfAborted(ctx.signal);
 
     ctx.onProgress({ fraction: 0.95, stage: 'Checking' });
-    const buffer = (output.target as InstanceType<Mediabunny['BufferTarget']>).buffer;
+    const buffer = (output.target as import('mediabunny').BufferTarget).buffer;
     if (!buffer || buffer.byteLength === 0 || sniff(new Uint8Array(buffer, 0, Math.min(64, buffer.byteLength))).formatId !== toId) {
       throw new ConversionError('ENCODE_FAILED', `The ${target.label} file came out empty or damaged, so it was not saved. Try again or choose another format.`);
     }

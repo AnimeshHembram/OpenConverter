@@ -8,6 +8,7 @@ import { createDocumentConverter } from './modules/document/converter';
 import { createPdfConverter } from './modules/pdf/converter';
 import { createMediaConverter } from './modules/media/converter';
 import { DEFAULT_AUDIO_BITRATE } from './modules/media/bitrate';
+import { inlinedMedia } from './standalone-extras';
 import { pixelPolicy } from './core/limits';
 import { initThemeSwitch } from './ui/theme';
 import { mountApp } from './ui/view';
@@ -41,9 +42,9 @@ async function start(): Promise<void> {
   // PDF input: pdf.js runs in a worker and loads data files, none of which
   // can load from disk either.
   registerConverter(createPdfConverter({ available: !standalone }));
-  // Audio and video → MP3 or WAV: the audio libraries load on first use, which
-  // a page opened from disk can't do either.
-  registerConverter(createMediaConverter({ available: !standalone }));
+  // Audio and video → MP3 or WAV: on the website the audio libraries load on
+  // first use; the standalone file has them built in.
+  registerConverter(createMediaConverter({ available: !standalone || !!inlinedMedia, inlined: inlinedMedia }));
 
   const controller = new Controller({
     target: caps.encoders.has('webp') ? 'webp' : 'jpeg',

@@ -38,7 +38,7 @@ Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/Open
 - Surround sound is mixed down to stereo for MP3 (the app says so), and audio above 48 kHz is resampled to 48 kHz, the most MP3 can store.
 - Previews play the original and the converted audio.
 - How it works: [Mediabunny](https://github.com/Vanilagy/mediabunny) reads the file and decodes the sound with the browser's own decoders (WebCodecs). MP3 is encoded by LAME compiled to WebAssembly, loaded only when MP3 is chosen. Everything runs on your device; nothing is uploaded.
-- **Browser support:** current Chrome, Edge and Firefox, and Safari 26 or newer (earlier Safari has no audio decoders for web pages). A codec the browser can't decode (for example AC-3 surround in a film, or AAC in Chromium builds without proprietary codecs) gets a message naming it. The standalone file opened from disk can't load the audio tools.
+- **Browser support:** current Chrome, Edge and Firefox, and Safari 26 or newer (earlier Safari has no audio decoders for web pages). A codec the browser can't decode (for example AC-3 surround in a film, or AAC in Chromium builds without proprietary codecs) gets a message naming it. The standalone file (`dist-standalone/index.html`) has the audio tools built in, so audio and video convert straight from disk too.
 
 ## Documents
 
@@ -64,7 +64,7 @@ Every file is identified from its content, not just its name: JSON by parsing it
   - Password-protected PDFs get a clear message.
 - **Writing PDF and Word:** PDFs have real, selectable text, wrapped and paginated, with headings, lists, code blocks, quotes and tables (header rows repeat on each page; wide tables use landscape). The built-in PDF fonts cover Western European text: other scripts (Hindi, Chinese, emoji…) appear as "?" and the app says so and suggests Word or HTML, which keep every character. Word files have real headings, bulleted and numbered lists, tables and links.
 - **Not supported yet:** Word (.docx) and PowerPoint (.pptx) input (coming in the next stages); old Office 97–2003 files (.doc, .xls, .ppt) and OpenDocument (.ods, .odt, .odp), which get advice to re-save in the current format; HTML input. Limits: 50 MB for text and data files, 25 MB for workbooks.
-- **Standalone file:** opened from disk, it converts images, text, Markdown, JSON and CSV. Excel, PDF input and PDF/Word output need the website or `npm start`, because those libraries are separate files that browsers won't load from disk.
+- **Standalone file:** opened from disk, it converts images, text, Markdown, JSON and CSV, and audio and video to MP3 or WAV (those tools are built into the file, which makes it about 1.2 MB). Excel, PDF input and PDF/Word output need the website or `npm start`, because those libraries are separate files that browsers won't load from disk.
 
 ## Format behaviour and known limitations
 
@@ -136,7 +136,7 @@ npm run test:all:chromium    # same, Chromium only (faster locally)
 npm run fixtures             # regenerate binary test fixtures (APNG, animated WebP, rotated JPEG)
 ```
 
-**Opening from disk:** the source `index.html` can't run on its own (it's TypeScript that Vite compiles). `npm run build` also creates `dist-standalone/index.html`, a single self-contained file you can double-click or copy anywhere: no server, no network. Its security policy allows exactly its inlined code by hash. From disk, browsers can't load the WebAssembly WebP encoder, so in that file WebP output appears only in browsers that encode WebP natively (Chrome, Edge, Firefox); Safari users get PNG, JPEG and BMP. For development use `npm start`; to preview the production build use `npm run preview` (http://localhost:4173).
+**Opening from disk:** the source `index.html` can't run on its own (it's TypeScript that Vite compiles). `npm run build` also creates `dist-standalone/index.html`, a single self-contained file you can double-click or copy anywhere: no server, no network. Its security policy allows exactly its inlined code by hash, plus `'wasm-unsafe-eval'` for the built-in MP3 encoder (WebAssembly only; JavaScript `eval` stays blocked). From disk, browsers can't load the WebAssembly WebP encoder, so in that file WebP output appears only in browsers that encode WebP natively (Chrome, Edge, Firefox); Safari users get PNG, JPEG and BMP. For development use `npm start`; to preview the production build use `npm run preview` (http://localhost:4173).
 
 Debug hook: add `?noNative=webp` to the URL to force the WebAssembly WebP encoder in any browser.
 

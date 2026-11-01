@@ -13,6 +13,7 @@
  */
 import { FORMATS, getFormat } from '../../core/formats';
 import type { Converter } from '../../core/types';
+import type * as RunModule from './run';
 import type { Libraries } from './run';
 
 export { AUDIO_BITRATES, DEFAULT_AUDIO_BITRATE, formatDuration, normaliseBitrate } from './bitrate';
@@ -25,6 +26,13 @@ export interface MediaConverterOptions {
   available?: boolean;
   /** For tests: how to load the libraries. */
   load?: () => Promise<Libraries>;
+  /** Standalone file: the conversion code and libraries, already bundled in. */
+  inlined?: InlinedMedia;
+}
+
+/** The media code bundled into the standalone file (see src/standalone-extras.media.ts). */
+export interface InlinedMedia {
+  run: typeof RunModule;
 }
 
 export function createMediaConverter(opts: MediaConverterOptions = {}): Converter {
@@ -48,6 +56,8 @@ export function createMediaConverter(opts: MediaConverterOptions = {}): Converte
     },
 
     async convert(input, toId, options, ctx) {
+      const inlined = opts.inlined;
+      if (inlined) return inlined.run.convertMedia(input, toId, options, ctx, opts.load);
       const { convertMedia } = await import('./run');
       return convertMedia(input, toId, options, ctx, opts.load);
     },
