@@ -1,7 +1,7 @@
 import { detectAnimation, orientedDimensions, readDimensions, readJpegOrientation, sniff, type Dimensions } from './detect';
 import { ConversionError } from './errors';
-import { extensionOf, findFormatByExtension, findFormatById } from './formats';
-import { MAX_DIMENSION, MAX_FILE_BYTES, MAX_SPREADSHEET_BYTES, MAX_TEXT_BYTES, formatBytes, formatMegapixels, pixelPolicy, type PixelPolicy } from './limits';
+import { extensionOf, findFormatByExtension, findFormatById, findFormatByMime } from './formats';
+import { MAX_DIMENSION, MAX_FILE_BYTES, MAX_MEDIA_BYTES, MAX_SPREADSHEET_BYTES, MAX_TEXT_BYTES, formatBytes, formatMegapixels, pixelPolicy, type PixelPolicy } from './limits';
 import type { FormatInfo } from './types';
 import { parseCsv } from './csv';
 import { classifyText, decodeText, detectDelimiter, jsonProblem, looksLikeText } from './text';
@@ -29,15 +29,27 @@ const HEADER_BYTES = 512 * 1024;
  */
 export async function inspectFile(file: File): Promise<InspectedFile> {
   if (file.size === 0) throw new ConversionError('EMPTY_FILE', 'This file is empty.');
-  if (file.size > MAX_FILE_BYTES) {
+  // Audio and video are streamed while converting, so they may be larger.
+  // Only files that say they're audio or video get that far; their bytes
+  // decide below.
+  const mediaHint = isMediaFormat(findFormatByExtension(file.name)) || isMediaFormat(findFormatByMime(file.type ?? ''));
+  const limit = mediaHint ? MAX_MEDIA_BYTES : MAX_FILE_BYTES;
+  if (file.size > limit) {
     throw new ConversionError(
       'FILE_TOO_LARGE',
-      `This file is ${formatBytes(file.size)}. The limit is ${formatBytes(MAX_FILE_BYTES)} per file.`,
+      mediaHint
+        ? `This file is ${formatBytes(file.size)}. Audio and video files can be up to ${formatBytes(MAX_MEDIA_BYTES)}.`
+        : `This file is ${formatBytes(file.size)}. The limit is ${formatBytes(MAX_FILE_BYTES)} per file.`,
     );
   }
 
   const head = new Uint8Array(await file.slice(0, HEADER_BYTES).arrayBuffer());
   const sniffed = sniff(head);
+  const sniffedFormat = sniffed.formatId ? findFormatById(sniffed.formatId) : undefined;
+  if (isMediaFormat(sniffedFormat)) return inspectMedia(file, sniffedFormat!);
+  if (file.size > MAX_FILE_BYTES) {
+    throw new ConversionError('FILE_TOO_LARGE', `This file is ${formatBytes(file.size)}. The limit is ${formatBytes(MAX_FILE_BYTES)} per file.`);
+  }
   if (sniffed.container === 'zip') return inspectZip(file, head);
   if (sniffed.container === 'ole') throw legacyOffice(file.name);
   if (!sniffed.formatId) {
@@ -50,7 +62,7 @@ export async function inspectFile(file: File): Promise<InspectedFile> {
     if (looksLikeText(head)) return inspectText(file);
     throw new ConversionError(
       'UNSUPPORTED_FORMAT',
-      "This doesn't look like a file OpenConverter can read: an image (PNG, JPEG, WebP, BMP), text, Markdown, JSON, CSV or Excel file.",
+      "This doesn't look like a file OpenConverter can read: an image (PNG, JPEG, WebP, BMP), audio or video, PDF, text, Markdown, JSON, CSV or Excel file.",
     );
   }
   const format = findFormatById(sniffed.formatId)!;
@@ -74,6 +86,24 @@ export async function inspectFile(file: File): Promise<InspectedFile> {
     warnings.push(`This is ${kind}. Only the first frame will be converted; the animation won't be kept.`);
   }
   return { format, dimensions, orientation, animated, warnings };
+}
+
+const isMediaFormat = (f: FormatInfo | undefined) => f?.category === 'audio' || f?.category === 'video';
+
+/**
+ * Audio and video: identified from their headers only. Tracks, codecs and
+ * duration are read when the file is converted, by the media module.
+ */
+function inspectMedia(file: File, format: FormatInfo): InspectedFile {
+  const warnings: string[] = [];
+  const ext = extensionOf(file.name);
+  const byExt = findFormatByExtension(file.name);
+  // MP4 and M4A (and WebM/MKV) are the same container; only warn across families.
+  const family = (id?: string) => ({ m4a: 'mp4', mov: 'mp4', mkv: 'webm' })[id ?? ''] ?? id;
+  if (ext && family(byExt?.id) !== family(format.id)) {
+    warnings.push(`The file is named .${ext} but is actually ${format.category === 'video' ? 'a' : 'an'} ${format.label} file.`);
+  }
+  return { format, dimensions: null, orientation: null, animated: null, warnings };
 }
 
 export function checkDimensions({ width, height }: Dimensions, policy: PixelPolicy = pixelPolicy()): void {

@@ -112,6 +112,14 @@ The UI never imports a conversion module, so a redesign can replace `src/ui/view
 
 **Next stages:** Word input (`mammoth` to read `.docx`), PowerPoint (`jszip` to read slides). Each loads lazily.
 
+## Audio and video (`src/modules/media`)
+
+- Formats: video (`mp4`, `mov`, `webm`, `mkv`) and audio (`mp3`, `wav`, `m4a`, `aac`, `ogg`, `flac`) are detected from their bytes in `core/detect.ts` (ftyp brands, EBML DocType, `RIFF…WAVE`, `ID3`, a validated MPEG frame header, ADTS, `OggS`, `fLaC`). Outputs are MP3 and WAV. Media rows choose their output per file, like documents; `itemKey` adds the MP3 bitrate, so changing it marks MP3 results out of date.
+- Limits: `inspectFile` allows up to `MAX_MEDIA_BYTES` (2 GB) only for files whose name or MIME type says audio/video **and** whose bytes confirm it; everything else keeps the 100 MB limit. WAV output is estimated from the duration and refused over `MAX_WAV_OUTPUT_BYTES` (1 GB) before converting.
+- `converter.ts` is tiny and always loaded (what can be converted, labels such as "MP3 (sound only)"). `run.ts` and Mediabunny load on the first conversion; `@mediabunny/mp3-encoder` (LAME in WebAssembly, run in a worker it creates from a `blob:` URL, hence `worker-src blob:`) loads only for MP3 when the browser has no MP3 encoder, which is always today.
+- Pipeline: `Input(BlobSource)` reads the file in pieces → the primary audio track is checked (missing track, or a codec this browser can't decode, give specific messages) → `Conversion` with `video: { discard: true }`; MP3 uses `forceTranscode` so the chosen bitrate always applies, at most 2 channels and 48 kHz; WAV is 16-bit PCM → the output's signature is checked before it's offered. Cancelling calls `conversion.cancel()`.
+- Tests: `tests/fixtures/media.ts` holds 2-second ffmpeg-made clips (440 Hz left, 880 Hz right). Unit tests convert WAV in Node with the real libraries and check every MP3 frame's bitrate and sample rate; browser tests decode the outputs and check length, channels and both tones.
+
 ## Testing
 
 | Suite | Config | Runs against |

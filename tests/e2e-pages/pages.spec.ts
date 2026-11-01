@@ -3,6 +3,8 @@ import { sniff } from '../../src/core/detect';
 import { addFiles, convertAndDownload, makeImage, pixelAt } from '../e2e/helpers';
 import { buildPdf, SAMPLE_TEXT_PAGES } from '../fixtures/pdfs';
 import { rainyStreet } from '../fixtures/scenes';
+import { clipWebm } from '../fixtures/media';
+import { mp3Frames } from '../fixtures/mp3';
 
 /**
  * The GitHub Pages build, served under its repository subpath exactly as
@@ -164,5 +166,20 @@ test('photo background removal loads its model from the subpath', async ({ page,
   const base = new URL(baseURL!).pathname;
   const paths = w.requests.map((r) => new URL(r.url()).pathname);
   expect(paths).toContain(`${base}assets/models/selfie_segmentation.tflite`);
+  checkRequests(w, baseURL!);
+});
+
+test("a video's sound converts to MP3 with its libraries loaded from the subpath", async ({ page, baseURL }) => {
+  test.slow();
+  const w = await openPages(page);
+  await addFiles(page, [{ name: 'clip.webm', mimeType: 'video/webm', buffer: Buffer.from(clipWebm) }]);
+  await page.getByTestId('audio-bitrate').selectOption('96');
+  const { name, bytes } = await convertAndDownload(page);
+  expect(name).toBe('clip.mp3');
+  expect(sniff(bytes).formatId).toBe('mp3');
+  expect(new Set(mp3Frames(bytes).frames.map((f) => f.kbps))).toEqual(new Set([96]));
+  const base = new URL(baseURL!).pathname;
+  const paths = w.requests.map((r) => new URL(r.url()).pathname);
+  expect(paths.some((p) => p.startsWith(`${base}assets/`) && /mediabunny-mp3-encoder/.test(p)), 'MP3 encoder chunk').toBe(true);
   checkRequests(w, baseURL!);
 });

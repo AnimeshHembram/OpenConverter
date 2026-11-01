@@ -71,8 +71,17 @@ export const isImage = (item: FileItem) => item.format?.category === 'image';
 /** The output format a file will be converted to. */
 export const targetOf = (item: FileItem, settings: Settings) => (isImage(item) ? settings.target : item.target);
 
-/** What a file's result depends on: the shared image settings, or a document's own target. */
-export const itemKey = (item: FileItem, settings: Settings) => (isImage(item) ? settingsKey(settings) : `doc|${item.target ?? ''}`);
+const isMedia = (item: FileItem) => item.format?.category === 'audio' || item.format?.category === 'video';
+
+/**
+ * What a file's result depends on: the shared image settings, a document's
+ * own target, or for audio and video their target plus the MP3 bitrate.
+ */
+export const itemKey = (item: FileItem, settings: Settings) => {
+  if (isImage(item)) return settingsKey(settings);
+  if (isMedia(item) && item.target === 'mp3') return `media|mp3|${settings.audioBitrate ?? ''}`;
+  return `doc|${item.target ?? ''}`;
+};
 
 export function isStale(item: FileItem, settings: Settings): boolean {
   return !!item.result && item.result.settingsKey !== itemKey(item, settings);

@@ -32,7 +32,10 @@ const CSP = [
   "style-src 'self'",
   "img-src 'self' blob: data:", // previews are blob: URLs; the favicon is a data: URL
   "connect-src 'self'", // same-origin only: loads the .wasm encoder
-  "worker-src 'self'", // pdf.js parses PDFs in a same-origin worker
+  // pdf.js parses PDFs in a same-origin worker; the MP3 encoder (LAME) runs in
+  // a worker it creates from its own bundled code via a blob: URL.
+  "worker-src 'self' blob:",
+  "media-src 'self' blob:", // audio and video previews play local blob: URLs
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
@@ -168,6 +171,13 @@ function thirdPartyNoticesPlugin(): Plugin {
     { title: '@pdf-lib/upng, bundled in pdf-lib (MIT)', file: join(pkgDir('@pdf-lib/upng'), 'LICENSE') },
     { title: 'tslib, bundled in pdf-lib (0BSD)', file: join(pkgDir('tslib'), 'LICENSE.txt') },
     { title: 'docx (MIT) — https://github.com/dolanmiu/docx', file: join(pkgDir('docx'), 'LICENSE') },
+    { title: 'Mediabunny (MPL-2.0) — https://github.com/Vanilagy/mediabunny', file: join(pkgDir('mediabunny'), 'LICENSE') },
+    { title: '@mediabunny/mp3-encoder (MPL-2.0) — https://github.com/Vanilagy/mediabunny', file: join(pkgDir('@mediabunny/mp3-encoder'), 'LICENSE') },
+    {
+      title: 'LAME MP3 encoder, compiled to WebAssembly inside @mediabunny/mp3-encoder (LGPL-2.0) — source: https://lame.sourceforge.io',
+      file: join(pkgDir('@mediabunny/mp3-encoder'), 'licenses', 'lame', 'LICENSE'),
+    },
+    { title: 'LAME: GNU Library General Public License, version 2', file: join(pkgDir('@mediabunny/mp3-encoder'), 'licenses', 'lame', 'COPYING') },
     {
       // The npm package declares Apache-2.0 but ships no licence file, so the
       // standard Apache-2.0 text is reproduced from another package.

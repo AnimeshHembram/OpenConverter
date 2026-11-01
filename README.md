@@ -28,6 +28,18 @@ Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/Open
 - Batch conversion with progress, cancel and per-file remove. "Download all" gives a ZIP with unique file names.
 - Every output is checked before it's offered: it must be non-empty, have the right file signature, the right MIME type and a matching extension. A browser that silently produces the wrong format gets an error instead of a mislabelled file.
 
+## Audio and video
+
+- **Video → audio:** take the sound from a video (MP4, MOV, WebM, MKV) and save it as **MP3** or **WAV**. The picture is never decoded, so it's fast.
+- **Audio → audio:** convert MP3, WAV, M4A/AAC, Ogg (Vorbis or Opus), FLAC, WebM or MKV audio to MP3 or WAV.
+- **Audio quality (MP3):** 320, 256, 192, 128 (default), 96 or 64 kbps, constant bitrate. Higher sounds better and makes larger files; 64 kbps suits speech. A bitrate above the original's adds size, not quality. WAV is uncompressed, so it has no bitrate setting.
+- Each audio or video file has its own **Convert to** choice; the **Audio quality** setting appears when a file is set to MP3.
+- Files are read in small pieces, so videos can be up to 2 GB. WAV output is limited to 1 GB (about 1 hour 40 minutes of 48 kHz stereo); longer audio should be saved as MP3.
+- Surround sound is mixed down to stereo for MP3 (the app says so), and audio above 48 kHz is resampled to 48 kHz, the most MP3 can store.
+- Previews play the original and the converted audio.
+- How it works: [Mediabunny](https://github.com/Vanilagy/mediabunny) reads the file and decodes the sound with the browser's own decoders (WebCodecs). MP3 is encoded by LAME compiled to WebAssembly, loaded only when MP3 is chosen. Everything runs on your device; nothing is uploaded.
+- **Browser support:** current Chrome, Edge and Firefox, and Safari 26 or newer (earlier Safari has no audio decoders for web pages). A codec the browser can't decode (for example AC-3 surround in a film, or AAC in Chromium builds without proprietary codecs) gets a message naming it. The standalone file opened from disk can't load the audio tools.
+
 ## Documents
 
 Every file is identified from its content, not just its name: JSON by parsing it, CSV by a consistent delimiter (comma, semicolon, tab or pipe), Markdown by its syntax, and Office files by the parts inside them. A `.txt` file holding JSON is treated as JSON, and the app says so. Each document row has its own **Convert to** choice; images keep the shared settings.
@@ -70,7 +82,8 @@ Every file is identified from its content, not just its name: JSON by parsing it
 
 | Limit | Value | Why |
 |---|---|---|
-| File size | 100 MB per file | Keeps reading and decoding bounded. |
+| File size | 100 MB per file; 2 GB for audio and video | Keeps reading and decoding bounded. Audio and video are read in pieces. |
+| WAV output | 1 GB | WAV is uncompressed and is built in memory. MP3 is suggested instead. |
 | Batch size | 200 files at a time | Keeps the list and memory manageable. Extra files are skipped with a message. |
 | Side length | 16,384 px | Common browser canvas limit. |
 | Pixels: desktop | 50 MP | Peak memory is roughly 12–16 bytes per pixel during conversion (600–800 MB at 50 MP). |
@@ -99,7 +112,7 @@ Encoders are detected at startup by checking what the browser actually produces,
 These claims apply to the production site:
 
 - Images are processed in the browser and are never uploaded. There is no backend, analytics, tracking, cookies or account.
-- The page carries a Content-Security-Policy with `connect-src 'self'` and `worker-src 'self'` (the PDF reader's worker). The browser blocks any request to another site, and a test checks this. GitHub Pages can't send custom headers, so the policy is a `<meta>` tag. That means `frame-ancestors` (clickjacking protection) can't be set.
+- The page carries a Content-Security-Policy with `connect-src 'self'` and `worker-src 'self' blob:` (the PDF reader's worker, and the MP3 encoder's worker, which it creates from its own bundled code) and `media-src 'self' blob:` (audio and video previews of local files). The browser blocks any request to another site, and a test checks this. GitHub Pages can't send custom headers, so the policy is a `<meta>` tag. That means `frame-ancestors` (clickjacking protection) can't be set.
 - The only network requests are to this site itself: the page, its scripts and styles, and, when needed, the WebP encoder, the PDF reader's files and the background-removal model. The browser tests check that conversions make no request to any other origin.
 - `Referrer-Policy: no-referrer` is set for links that leave the site.
 
@@ -170,4 +183,4 @@ docs/ARCHITECTURE.md
 
 [MIT](LICENSE).
 
-The published site includes third-party code: `@jsquash/webp` (Apache-2.0), libwebp (BSD-3-Clause), `wasm-feature-detect` (Apache-2.0), `marked` (MIT), `exceljs` (MIT, which bundles JSZip, pako and other permissively licensed packages), `pdfjs-dist` (Apache-2.0, with its fonts, character maps and WebAssembly decoders), `pdf-lib` (MIT), `docx` (MIT) and the MediaPipe selfie segmentation model from `@mediapipe/selfie_segmentation` (Apache-2.0; only the model file is shipped). Their licence texts are generated into `THIRD_PARTY_NOTICES.txt` at build time and linked from the site footer.
+The published site includes third-party code: `@jsquash/webp` (Apache-2.0), libwebp (BSD-3-Clause), `wasm-feature-detect` (Apache-2.0), `marked` (MIT), `exceljs` (MIT, which bundles JSZip, pako and other permissively licensed packages), `pdfjs-dist` (Apache-2.0, with its fonts, character maps and WebAssembly decoders), `pdf-lib` (MIT), `docx` (MIT) the MediaPipe selfie segmentation model from `@mediapipe/selfie_segmentation` (Apache-2.0; only the model file is shipped), `mediabunny` and `@mediabunny/mp3-encoder` (MPL-2.0) and LAME (LGPL-2.0, compiled to WebAssembly inside the MP3 encoder and loaded as a separate file; its source is at https://lame.sourceforge.io). Their licence texts are generated into `THIRD_PARTY_NOTICES.txt` at build time and linked from the site footer.

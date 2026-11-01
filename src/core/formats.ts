@@ -1,9 +1,9 @@
 import type { FormatInfo } from './types';
 
 /**
- * Every format OpenConverter can read or write. Images are read and written;
- * PDF (`category: 'document'`) is currently an output only: images can be
- * saved as PDFs, but PDFs are not accepted as input.
+ * Every format OpenConverter can read or write: images, documents (PDF,
+ * text, data, Office), and audio and video. Video files are read only: their
+ * sound can be saved as MP3 or WAV.
  */
 export const FORMATS: readonly FormatInfo[] = [
   {
@@ -131,6 +131,45 @@ export const FORMATS: readonly FormatInfo[] = [
     supportsAlpha: false,
     input: false,
     inputMessage: "PowerPoint presentations can't be converted yet.",
+  },
+  // ---- Audio: MP3 and WAV are written; all of these are read ----------------
+  { id: 'mp3', label: 'MP3', mime: 'audio/mpeg', altMimes: ['audio/mp3'], extensions: ['mp3'], category: 'audio', lossy: true, supportsAlpha: false },
+  {
+    id: 'wav',
+    label: 'WAV',
+    mime: 'audio/wav',
+    altMimes: ['audio/x-wav', 'audio/wave', 'audio/vnd.wave'],
+    extensions: ['wav', 'wave'],
+    category: 'audio',
+    lossy: false,
+    supportsAlpha: false,
+  },
+  { id: 'm4a', label: 'M4A', mime: 'audio/mp4', altMimes: ['audio/x-m4a'], extensions: ['m4a', 'm4b'], category: 'audio', lossy: true, supportsAlpha: false },
+  { id: 'aac', label: 'AAC', mime: 'audio/aac', altMimes: ['audio/x-aac'], extensions: ['aac'], category: 'audio', lossy: true, supportsAlpha: false },
+  {
+    id: 'ogg',
+    label: 'Ogg',
+    mime: 'audio/ogg',
+    altMimes: ['application/ogg', 'audio/opus', 'audio/vorbis'],
+    extensions: ['ogg', 'oga', 'opus'],
+    category: 'audio',
+    lossy: true,
+    supportsAlpha: false,
+  },
+  { id: 'flac', label: 'FLAC', mime: 'audio/flac', altMimes: ['audio/x-flac'], extensions: ['flac'], category: 'audio', lossy: false, supportsAlpha: false },
+  // ---- Video: read only (the sound track is extracted) ----------------------
+  { id: 'mp4', label: 'MP4', mime: 'video/mp4', altMimes: ['video/x-m4v'], extensions: ['mp4', 'm4v'], category: 'video', lossy: true, supportsAlpha: false },
+  { id: 'mov', label: 'MOV', mime: 'video/quicktime', extensions: ['mov', 'qt'], category: 'video', lossy: true, supportsAlpha: false },
+  { id: 'webm', label: 'WebM', mime: 'video/webm', altMimes: ['audio/webm'], extensions: ['webm', 'weba'], category: 'video', lossy: true, supportsAlpha: false },
+  {
+    id: 'mkv',
+    label: 'MKV',
+    mime: 'video/x-matroska',
+    altMimes: ['audio/x-matroska'],
+    extensions: ['mkv', 'mka'],
+    category: 'video',
+    lossy: true,
+    supportsAlpha: false,
   },
 ];
 

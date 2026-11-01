@@ -7,7 +7,8 @@
 import { isImage, isStale, itemKey, type AppState, type Controller, type FileItem } from '../app/controller';
 import { acceptAttribute, getFormat } from '../core/formats';
 import type { FormatInfo } from '../core/types';
-import { MAX_BATCH_FILES, MAX_FILE_BYTES, formatBytes } from '../core/limits';
+import { MAX_BATCH_FILES, MAX_FILE_BYTES, MAX_MEDIA_BYTES, formatBytes } from '../core/limits';
+import { AUDIO_BITRATES, DEFAULT_AUDIO_BITRATE } from '../modules/media/bitrate';
 import type { ColourMode } from '../core/types';
 import type { ImageCapabilities } from '../modules/image/capabilities';
 import { parseSize } from '../modules/image/compress';
@@ -96,7 +97,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     h('span', {
       class: 'dz-meta',
       id: 'dropzone-hint',
-      text: `Images (PNG, JPEG, WebP, BMP), PDF, text, Markdown, JSON, CSV or Excel · up to ${formatBytes(MAX_FILE_BYTES)} per file · up to ${MAX_BATCH_FILES} files · you can also paste`,
+      text: `Images (PNG, JPEG, WebP, BMP), audio and video, PDF, text, Markdown, JSON, CSV or Excel · up to ${formatBytes(MAX_FILE_BYTES)} per file (${formatBytes(MAX_MEDIA_BYTES)} for audio and video) · up to ${MAX_BATCH_FILES} files · you can also paste`,
     }),
     zoneStatus,
   );
@@ -319,6 +320,26 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     ),
   );
 
+  // ---- Audio settings: shown when a file is being converted to MP3 -------
+  const audioBitrate = h('select', { id: 'audio-bitrate', class: 'select', 'data-testid': 'audio-bitrate' });
+  const BITRATE_NOTES: Record<number, string> = { 320: 'best', 192: 'very good', 128: 'good, smaller', 64: 'speech, smallest' };
+  for (const kbps of AUDIO_BITRATES) {
+    const note = BITRATE_NOTES[kbps];
+    audioBitrate.append(h('option', { value: String(kbps), text: `${kbps} kbps${note ? ` (${note})` : ''}` }));
+  }
+  audioBitrate.addEventListener('change', () => c.setSettings({ audioBitrate: Number(audioBitrate.value) }));
+  const audioSettings = h(
+    'div',
+    { class: 'settings settings-audio', role: 'group', 'aria-label': 'Audio settings', 'data-testid': 'audio-settings' },
+    h(
+      'div',
+      { class: 'field field-target' },
+      h('label', { for: 'audio-bitrate', class: 'field-label', text: 'Audio quality (MP3)' }),
+      audioBitrate,
+    ),
+    h('p', { class: 'field-hint audio-hint', text: 'Higher bitrates sound better and make larger files. A bitrate above the original adds size, not quality.' }),
+  );
+
   // ---- File list and actions --------------------------------------------
   const listTitle = h('h2', { class: 'list-title', id: 'files-title' });
   const listSummary = h('span', { class: 'list-summary', 'data-testid': 'list-summary' });
@@ -351,6 +372,7 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     { class: 'workspace', 'aria-labelledby': 'files-title' },
     h('div', { class: 'list-header' }, h('div', { class: 'list-heading' }, listTitle, listSummary), formatNote),
     settings,
+    audioSettings,
     list,
     actionbar,
   );
@@ -379,7 +401,8 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     tolerance.value = String(s.settings.bgTolerance ?? 25);
     toleranceOut.textContent = String(s.settings.bgTolerance ?? 25);
     // Controls are locked while a batch runs, so results match what's shown.
-    for (const el of [targetSelect, quality, maxSize, maxUnit, bg, bgHex, colourSelect, removeBg, tolerance]) el.disabled = s.running;
+    audioBitrate.value = String(s.settings.audioBitrate ?? DEFAULT_AUDIO_BITRATE);
+    for (const el of [targetSelect, quality, maxSize, maxUnit, bg, bgHex, colourSelect, removeBg, tolerance, audioBitrate]) el.disabled = s.running;
     formatNote.textContent = target.id === 'bmp'
       ? 'BMP files are uncompressed and can be very large.'
       : target.id === 'png'
@@ -399,6 +422,8 @@ export function mountApp(root: HTMLElement, c: Controller, caps: ImageCapabiliti
     const documents = s.items.some((i) => i.format && !isImage(i));
     settings.hidden = !images;
     formatNote.hidden ||= !images;
+    // The bitrate applies to MP3 output only.
+    audioSettings.hidden = !s.items.some((i) => (i.format?.category === 'audio' || i.format?.category === 'video') && i.target === 'mp3');
     targetLabel.textContent = documents ? 'Convert images to' : 'Convert all to';
     listTitle.textContent = `${s.items.length} ${s.items.length === 1 ? 'file' : 'files'}`;
     const converted = s.items.filter((i) => i.status === 'done' && !isStale(i, s.settings)).length;
@@ -715,6 +740,14 @@ function createPreviewDialog(c: Controller) {
   const content = (blob: Blob, format: FormatInfo, src: string, alt: string) => {
     if (format.category === 'image') return h('div', { class: 'pd-image' }, h('img', { src, alt, decoding: 'async' }));
     if (TEXT_FORMATS.has(format.id)) return textPreview(blob, alt);
+    // Played by the browser from a local blob: URL. Formats it can't play
+    // show its own "can't play" state; conversion doesn't depend on it.
+    if (format.category === 'video') {
+      return h('div', { class: 'pd-image pd-media' }, h('video', { src, controls: true, preload: 'metadata', playsinline: true, 'aria-label': alt }));
+    }
+    if (format.category === 'audio') {
+      return h('div', { class: 'pd-image pd-media pd-audio' }, h('span', { class: 'pd-doc-badge', 'aria-hidden': 'true', text: tileLabel(format) }), h('audio', { src, controls: true, preload: 'metadata', 'aria-label': alt }));
+    }
     if (format.id === 'pdf') return docTile(format, 'PDF document', src);
     if (format.id === 'xlsx') return docTile(format, 'Excel workbook: open it in Excel, Google Sheets or Numbers');
     if (format.id === 'docx') return docTile(format, 'Word document: open it in Word, Google Docs or Pages');

@@ -33,6 +33,33 @@ export function sniff(bytes: Uint8Array): SniffResult {
   }
   if (b.length >= 5 && ascii(b, 0, 5) === '%PDF-') return { formatId: 'pdf' };
 
+  // ---- Audio and video ----
+  if (b.length >= 12 && ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 4) === 'WAVE') return { formatId: 'wav' };
+  if (b.length >= 10 && ascii(b, 0, 3) === 'ID3') return { formatId: 'mp3' };
+  if (b.length >= 4 && ascii(b, 0, 4) === 'OggS') return { formatId: 'ogg' };
+  if (b.length >= 4 && ascii(b, 0, 4) === 'fLaC') return { formatId: 'flac' };
+  if (b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) {
+    // EBML: WebM declares its DocType "webm" near the start; anything else is Matroska.
+    return { formatId: ascii(b, 0, Math.min(b.length, 64)).includes('webm') ? 'webm' : 'mkv' };
+  }
+  if (b.length >= 12 && ascii(b, 4, 4) === 'ftyp') {
+    const brand = ascii(b, 8, 4);
+    if (['M4A ', 'M4B ', 'M4P '].includes(brand)) return { formatId: 'm4a' };
+    if (brand === 'qt  ') return { formatId: 'mov' };
+    if (!brand.startsWith('avi') && !['heic', 'heix', 'hevc', 'mif1', 'msf1', 'heim', 'heis'].includes(brand)) return { formatId: 'mp4' };
+  }
+  if (b.length >= 4 && b[0] === 0xff) {
+    // ADTS AAC: sync 0xFFF, layer 00.
+    if ((b[1]! & 0xf6) === 0xf0) return { formatId: 'aac' };
+    // MPEG audio frame without an ID3 tag: sync, a real version and layer,
+    // and a valid bitrate and sample rate (rules out random bytes).
+    const version = (b[1]! >> 3) & 3;
+    const layer = (b[1]! >> 1) & 3;
+    const bitrate = b[2]! >> 4;
+    const rate = (b[2]! >> 2) & 3;
+    if ((b[1]! & 0xe0) === 0xe0 && version !== 1 && layer !== 0 && bitrate !== 0 && bitrate !== 15 && rate !== 3) return { formatId: 'mp3' };
+  }
+
   if (b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 3 && b[3] === 4) return { formatId: null, container: 'zip' };
   if (b.length >= 8 && b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0 && b[4] === 0xa1 && b[5] === 0xb1 && b[6] === 0x1a && b[7] === 0xe1) {
     return { formatId: null, container: 'ole' };

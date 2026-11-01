@@ -18,6 +18,13 @@ export const MAX_DIMENSION = 16_384;
 export const MAX_TEXT_BYTES = 50 * 1024 * 1024;
 /** Spreadsheets expand a lot when loaded (every cell becomes an object). */
 export const MAX_SPREADSHEET_BYTES = 25 * 1024 * 1024;
+/**
+ * Audio and video are read in small pieces as they're converted, so the
+ * input can be large; the output (MP3 or WAV) is held in memory.
+ */
+export const MAX_MEDIA_BYTES = 2 * 1024 * 1024 * 1024;
+/** WAV output is uncompressed (about 10 MB per minute in stereo), so it's capped. */
+export const MAX_WAV_OUTPUT_BYTES = 1024 * 1024 * 1024;
 
 export interface DeviceProfile {
   /** iPhone, iPad (including iPadOS in desktop mode). */

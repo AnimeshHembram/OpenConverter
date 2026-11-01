@@ -506,6 +506,30 @@ body.has-files .dz-status {
   font-size: 0.8125rem;
 }
 
+/* Audio and video previews */
+.pd-media {
+  display: grid;
+  place-items: center;
+  gap: 16px;
+}
+
+.pd-media video {
+  max-width: 100%;
+  max-height: 60vh;
+  background: #000;
+  border-radius: var(--radius-sm, 8px);
+}
+
+.pd-media audio {
+  width: min(100%, 420px);
+}
+
+.audio-hint {
+  flex: 1 1 260px;
+  align-self: center;
+  margin: 0;
+}
+
 /* Settings bar */
 .settings {
   display: flex;

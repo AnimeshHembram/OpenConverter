@@ -6,7 +6,7 @@
  * for a detected input format and hands jobs to whichever converter answers.
  */
 
-export type FormatCategory = 'image' | 'document';
+export type FormatCategory = 'image' | 'document' | 'audio' | 'video';
 
 export interface FormatInfo {
   /** Stable identifier, e.g. "png", "jpeg", "pdf". */
@@ -46,6 +46,8 @@ export interface ConvertOptions {
   bgTolerance?: number;
   /** Lossy outputs only: the largest acceptable file size in bytes. Quality is lowered until it fits. */
   maxBytes?: number | null;
+  /** MP3 output: bitrate in kbit/s (e.g. 128). */
+  audioBitrate?: number;
 }
 
 export interface ProgressInfo {
