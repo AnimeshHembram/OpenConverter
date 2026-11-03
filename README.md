@@ -2,11 +2,13 @@
 
 Free, open-source file conversion that runs **entirely in your browser**. No account, no uploads, no server, no tracking.
 
-**Level 1, images:** convert between PNG, JPEG, WebP and BMP, save images as PDF, make them grayscale or black and white, remove plain backgrounds and compress to a size limit, one file or a batch.
+**Live site:** https://animeshhembram.github.io/OpenConverter/
 
-**Level 2, documents (stages 1–2 of 4 done):** text, Markdown, JSON, CSV, Excel and PDF, with Word output. Reading Word and PowerPoint files is next (see [Documents](#documents)).
+**Images:** convert between PNG, JPEG, WebP and BMP, save images as PDF, make them grayscale or black and white, remove backgrounds (people in photos, or any subject on a plain background) and compress to a size limit, one file or a batch.
 
-Live site (once GitHub Pages is enabled): `https://animeshhembram.github.io/OpenConverter/`
+**Documents (stages 1–2 of 4 done):** text, Markdown, JSON, CSV, Excel and PDF, with Word output. Reading Word and PowerPoint files is next (see [Documents](#documents)).
+
+**Audio and video:** take the sound from a video, or convert audio, to MP3 (320–64 kbps) or WAV (see [Audio and video](#audio-and-video)).
 
 ## Features
 
@@ -102,18 +104,20 @@ Images over the limit are rejected from their header **before** decoding, with a
 | BMP output | Built-in TypeScript encoder (no browser can write BMP natively). |
 | PDF output | Built-in TypeScript writer around the browser's JPEG encoder. |
 | BMP input | Built-in decoder for consistent transparency, with the browser as a fallback for rare variants (RLE). |
+| Audio and video input | The browser's own audio decoders (WebCodecs), through Mediabunny: Chrome, Edge, Firefox, and Safari 26 or newer. Which codecs work depends on the browser (for example, AAC needs a browser with proprietary codecs). |
+| MP3 output | LAME compiled to WebAssembly, run in a background worker. WAV output is written directly. |
 
 Encoders are detected at startup by checking what the browser actually produces, not by its name.
 
-**Tested automatically:** Chromium (desktop, and Pixel 7 emulation). Firefox, WebKit and iPhone (WebKit) emulation are configured as CI test projects but haven't been run yet; the first CI run will be their first run. See [Testing](#testing) for what still needs a real device.
+**Tested automatically:** every push runs the browser tests in Chromium (desktop, and Pixel 7 emulation), Firefox, and WebKit (desktop, and iPhone 13 emulation) on GitHub Actions. See [Testing](#testing) for what still needs a real device.
 
 ## Privacy and security
 
 These claims apply to the production site:
 
-- Images are processed in the browser and are never uploaded. There is no backend, analytics, tracking, cookies or account.
+- Files (images, documents, audio and video) are processed in the browser and are never uploaded. There is no backend, analytics, tracking, cookies or account.
 - The page carries a Content-Security-Policy with `connect-src 'self'` and `worker-src 'self' blob:` (the PDF reader's worker, and the MP3 encoder's worker, which it creates from its own bundled code) and `media-src 'self' blob:` (audio and video previews of local files). The browser blocks any request to another site, and a test checks this. GitHub Pages can't send custom headers, so the policy is a `<meta>` tag. That means `frame-ancestors` (clickjacking protection) can't be set.
-- The only network requests are to this site itself: the page, its scripts and styles, and, when needed, the WebP encoder, the PDF reader's files and the background-removal model. The browser tests check that conversions make no request to any other origin.
+- The only network requests are to this site itself: the page, its scripts and styles, and, when needed, the WebP encoder, the PDF reader's files, the background-removal model and the audio libraries. The browser tests check that conversions make no request to any other origin.
 - `Referrer-Policy: no-referrer` is set for links that leave the site.
 
 ## Development
@@ -147,7 +151,10 @@ Debug hook: add `?noNative=webp` to the URL to force the WebAssembly WebP encode
 - **Unit tests** cover format detection, header parsing (dimensions, animation, EXIF), the BMP codec, ZIP output, file names, limits and their boundaries, device-limit selection, output verification, error messages, and controller lifecycle (cancel, remove, clear, failures part-way through a batch, stale results).
 - **Browser tests** run real conversions through the UI and check downloaded bytes and pixels. They cover the thin-transparency regressions, animation warnings, rotated photos, WebP encoder failure and retry, cancel and remove during conversion, release of bitmaps and canvases, back/forward-cache restore, keyboard access and focus, drag-and-drop, paste, ZIP naming and the size-limit messages.
 - **Interface tests** cover the theme (system default, switching, persistence, no flash of the wrong theme, blocked storage), the upload zone's states, the preview dialog (keyboard, focus return, uncropped images), the pinned action bar, and a WCAG AA contrast check of every visible piece of text in both themes.
-- **GitHub Pages suite** builds with the deployed base path and serves it like GitHub Pages. It checks asset paths, native conversion and the forced WebAssembly WebP encoder, the security policy, footer links, and that no request leaves the site.
+- **Documents and PDF tests** check converted text, tables, Word and Excel files by reading them back, and PDF text extraction, page images and compression, including in browsers without ReadableStream async iteration (Safari 26 and earlier).
+- **Background-removal tests** use synthetic scenes with known ground truth (a dark-coated person on a dark rainy street, products with shadows, hair, light and dark backdrops) and score every pixel. The segmentation interpreter is checked against Google's reference output.
+- **Audio and video tests** use small real clips (WebM, MP4, MKV, MOV, MP3, Ogg, FLAC, M4A, AAC) with a 440 Hz tone on the left and 880 Hz on the right. They check every MP3 frame's bitrate, then decode the result in the browser and check its length, channels and both tones, on the website, at the Pages subpath and in the standalone file.
+- **GitHub Pages suite** builds with the deployed base path and serves it like GitHub Pages. It checks asset paths, native conversion and the forced WebAssembly WebP encoder, PDF, background removal and audio loading from the subpath, the security policy, footer links, and that no request leaves the site.
 
 **Manual checks that automation can't replace:** real iPhone/iPad Safari (WebKit on Linux is only an approximation), real Android Chrome on a low-memory phone, macOS Safari, a real back/forward navigation (Playwright's Chromium disables the back/forward cache), the native file picker and drag-and-drop from the desktop, screen reader announcements (VoiceOver, NVDA, TalkBack), and very large images near the limits.
 
@@ -159,7 +166,7 @@ The workflow in `.github/workflows/deploy.yml`:
 - **Push to `main` (or a manual run on `main`):** the same tests, then deploys **the exact `dist-pages/` build those tests checked**. Runs on `main` are queued, never cancelled, and pull-request runs can't cancel them.
 - **Permissions:** `contents: read` everywhere. Only the deploy job gets `pages: write` and `id-token: write`. No secrets are needed.
 
-One-time setup in the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions.**
+One-time setup in the repository (already done for this repository): **Settings → Pages → Build and deployment → Source: GitHub Actions.** The site is live at https://animeshhembram.github.io/OpenConverter/.
 
 The site is served at `/<repository-name>/`. The workflow sets this from the repository name, and the footer's source link comes from `GITHUB_REPOSITORY`, so forks work without changes.
 
@@ -167,17 +174,21 @@ The site is served at `/<repository-name>/`. The workflow sets this from the rep
 
 ```
 src/
-  core/            formats, detection, validation, limits, errors, registry, zip, object URLs
-  modules/image/   image converter: decode, encode, capabilities, BMP codec
-  app/             controller: state, queue, cancellation, downloads (no DOM styling)
-  ui/              view.ts (plain-DOM interface) and theme.ts (light/dark switch)
-  styles.css       monochrome design: every colour is a token, each theme defined once
-public/            theme-init.js: applies the theme before first paint
-scripts/           build-pages.mjs, serve-pages.mjs (GitHub Pages emulation)
-tests/unit/        Vitest
-tests/e2e/         Playwright, root build
-tests/e2e-pages/   Playwright, GitHub Pages build at its subpath
-tests/fixtures/    binary fixtures and their generator
+  core/              formats, detection, validation, limits, errors, registry, zip, object URLs
+  modules/image/     image converter: decode, encode, capabilities, BMP codec, edits,
+                     background removal (colour key, segmentation model interpreter, matting)
+  modules/document/  text, Markdown, JSON, CSV and Excel; PDF and Word writers
+  modules/pdf/       PDF reading (pdf.js and its worker), text extraction, compression
+  modules/media/     audio and video to MP3 or WAV (Mediabunny, LAME)
+  app/               controller: state, queue, cancellation, downloads (no DOM styling)
+  ui/                view.ts (plain-DOM interface) and theme.ts (light/dark switch)
+  styles.css         monochrome design: every colour is a token, each theme defined once
+public/              theme-init.js: applies the theme before first paint
+scripts/             build-pages.mjs, serve-pages.mjs (GitHub Pages emulation), build-standalone.mjs
+tests/unit/          Vitest
+tests/e2e/           Playwright, root build and standalone file
+tests/e2e-pages/     Playwright, GitHub Pages build at its subpath
+tests/fixtures/      fixtures: images, PDFs, synthetic photo scenes, audio and video clips
 docs/ARCHITECTURE.md
 ```
 
@@ -185,4 +196,4 @@ docs/ARCHITECTURE.md
 
 [MIT](LICENSE).
 
-The published site includes third-party code: `@jsquash/webp` (Apache-2.0), libwebp (BSD-3-Clause), `wasm-feature-detect` (Apache-2.0), `marked` (MIT), `exceljs` (MIT, which bundles JSZip, pako and other permissively licensed packages), `pdfjs-dist` (Apache-2.0, with its fonts, character maps and WebAssembly decoders), `pdf-lib` (MIT), `docx` (MIT) the MediaPipe selfie segmentation model from `@mediapipe/selfie_segmentation` (Apache-2.0; only the model file is shipped), `mediabunny` and `@mediabunny/mp3-encoder` (MPL-2.0) and LAME (LGPL-2.0, compiled to WebAssembly inside the MP3 encoder and loaded as a separate file; its source is at https://lame.sourceforge.io). Their licence texts are generated into `THIRD_PARTY_NOTICES.txt` at build time and linked from the site footer.
+The published site includes third-party code: `@jsquash/webp` (Apache-2.0), libwebp (BSD-3-Clause), `wasm-feature-detect` (Apache-2.0), `marked` (MIT), `exceljs` (MIT, which bundles JSZip, pako and other permissively licensed packages), `pdfjs-dist` (Apache-2.0, with its fonts, character maps and WebAssembly decoders), `pdf-lib` (MIT), `docx` (MIT), the MediaPipe selfie segmentation model from `@mediapipe/selfie_segmentation` (Apache-2.0; only the model file is shipped), `mediabunny` and `@mediabunny/mp3-encoder` (MPL-2.0) and LAME (LGPL-2.0, compiled to WebAssembly inside the MP3 encoder and loaded as a separate file; its source is at https://lame.sourceforge.io). Their licence texts are generated into `THIRD_PARTY_NOTICES.txt` at build time and linked from the site footer.
