@@ -1,5 +1,9 @@
 # OpenConverter
 
+[![CI and GitHub Pages](https://github.com/AnimeshHembram/OpenConverter/actions/workflows/deploy.yml/badge.svg?branch=main)](https://github.com/AnimeshHembram/OpenConverter/actions/workflows/deploy.yml)
+[![Live site](https://img.shields.io/badge/live-animeshhembram.github.io%2FOpenConverter-0a0a0a)](https://animeshhembram.github.io/OpenConverter/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0a0a0a)](LICENSE)
+
 Free, open-source file conversion that runs **entirely in your browser**. No account, no uploads, no server, no tracking.
 
 **Live site:** https://animeshhembram.github.io/OpenConverter/
