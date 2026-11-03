@@ -140,6 +140,8 @@ npm run fixtures             # regenerate binary test fixtures (APNG, animated W
 
 Debug hook: add `?noNative=webp` to the URL to force the WebAssembly WebP encoder in any browser.
 
+**Dependency audit:** `npm audit` reports 8 moderate advisories, all in `minimatch`, `glob`, `readdir-glob`, `archiver` and related packages that `exceljs` uses only in Node.js, for reading and writing files on disk. None of that code is in the website: the browser uses exceljs's prebuilt bundle, which doesn't contain those packages, and OpenConverter never runs exceljs in Node. Forcing newer versions would break exceljs without changing what ships, so they're left as they are until exceljs updates them.
+
 ## Testing
 
 - **Unit tests** cover format detection, header parsing (dimensions, animation, EXIF), the BMP codec, ZIP output, file names, limits and their boundaries, device-limit selection, output verification, error messages, and controller lifecycle (cancel, remove, clear, failures part-way through a batch, stale results).
